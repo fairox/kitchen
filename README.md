@@ -73,15 +73,27 @@ Further options:
 - **Prep sink** on the island. The work triangle uses whichever sink makes it shorter.
 - **Finishes:** separate colours and wood grain for base, wall and tall fronts. Presets *Oak & cashmere* and *Mocha & stone* follow the reference photos.
 
-### Activate from Archicad
+### Build in Archicad: the Archicad window
 
-1. In Archicad, select the kitchen's **Zone** (optional).
-2. Run `archicad/launch_configurator.py`: double-click **Open from Archicad** (`.bat` / `.command`), or run it from your Python setup / Tapir's script palette.
-3. The script starts the configurator server if it is not already running and reads the selected zone through Tapir. It then opens the browser with that room as the **fixed site**: width, depth and height from the zone, placed at the zone's position and story.
-4. The zone's walls already exist, so **Include room walls** starts unticked. Add the doors, windows and thresholds in *Openings*; the checks warn while the room has no entry.
-5. **Send to Archicad** builds the kitchen at the zone's position.
+The Archicad side works like the Parkform builder. The **browser never connects to Archicad**: the web app exports a build file and a script running inside Archicad builds it.
 
-The zone's bounding box is used, so draw the zone as an axis-aligned rectangle. Without Archicad or a selected zone, the script just opens the configurator.
+1. In the web app, open **Send to Archicad** and press **Download build file**. That saves `kitchen-<layout>-<date>.kitchen-build.json`; it is also under *Export*.
+2. In Archicad, run **`archicad/KitchenBuild.py`** from Tapir's script palette, or double-click **Build in Archicad** (`.bat` / `.command`). The palette starts it with `uv run --script KitchenBuild.py --port N`. It is a single file with a PEP 723 header that uses only the standard library.
+3. The **Kitchen Configurator: Build Kitchen** window:
+   - **Archicad:** pick the project. With several Archicads open you must choose; it never guesses.
+   - **Build file:** the newest file in Downloads is picked up automatically, including one downloaded while the window is open. It shows the design, room, element counts and the design's open checks.
+   - **Element table:** counts per element type and the target layers.
+   - **Placement:** story, origin X/Y/Z in metres, rotation, and whether to build the room walls. **From selected Zone** places the kitchen at the selected Zone and turns the room walls off, since they already exist.
+   - **Mode:** *Replace previous build …* (offered only when this project has a verified previous build) or *Append a new build*.
+   - **Open web app:** starts the local app. If a Zone is selected, the app opens with it as the fixed room.
+   - **Test placement:** places one element of each kind, verifies it and deletes it.
+   - **Build in Archicad:** builds after a confirmation.
+4. Every element is **verified by read-back**: type, story, layer and 3D bounding box.
+   - **Replace** runs only after the new build is verified, in the same identified project. It deletes only the previous build's elements that are still exactly as built; anything you moved, edited or put on another layer is kept.
+   - **The project** is identified by a token in an app-owned *Kitchen Configurator* classification system, plus the project path.
+   - **Every run is journalled** in `Documents/Kitchen Configurator/journal`. Use `--builds` to list runs and `--remove RUN_ID` to recover.
+
+`archicad/KitchenBuild.py` is generated from `build_kitchen.py` and `kitchen_gui.py` by `python3 tools/bundle_tapir_script.py`; edit those two, not the bundle. `archicad/launch_configurator.py` remains for opening the web app from a selected Zone without the window.
 
 ### Fixed room: the site comes first
 
@@ -153,27 +165,36 @@ Example (also accepted in the URL hash and by `tools/export.js`):
 
 ## Archicad / Tapir
 
-`archicad/build_kitchen.py` does the build. `serve.py` calls it, and you can also run it on its own:
+The window above is the normal way in. The same library is available on the command line (`KitchenBuild.py` accepts the same arguments as `build_kitchen.py`):
 
 ```bash
-node tools/export.js params.json model.json
+python3 archicad/KitchenBuild.py --status
 ```
 
 ```bash
-python3 archicad/build_kitchen.py model.json --test
+python3 archicad/KitchenBuild.py kitchen-l-shape-20261030-1944.kitchen-build.json --test
 ```
 
 ```bash
-python3 archicad/build_kitchen.py model.json
+python3 archicad/KitchenBuild.py kitchen-l-shape-20261030-1944.kitchen-build.json --mode replace --story 0
 ```
 
 ```bash
-python3 archicad/build_kitchen.py model.json --dry-run payloads.json
+python3 archicad/KitchenBuild.py --builds
 ```
 
-Run `python3 archicad/check_tapir.py` first to confirm that Archicad is running, Tapir is active and every command the build uses is available. It changes nothing in the project.
+```bash
+python3 archicad/KitchenBuild.py --remove RUN_ID
+```
 
-In order: generate a model without a browser, place one of each element type, verify it and delete it, build the model, and write the Tapir payloads without connecting.
+In order:
+- `--status`: the project, Tapir version and stories.
+- `--test`: test placement.
+- `--mode replace --story 0`: build, asking for confirmation unless `--yes`.
+- `--builds`: list the journalled runs.
+- `--remove RUN_ID`: remove a run's unchanged elements.
+
+`--dry-run OUT` writes the Tapir payloads without connecting. `check_tapir.py` is a read-only connection check. When the web app is served by `serve.py`, it can also build directly through the same library (*Build now* in the dialog).
 
 | Model element | Archicad element | Tapir command |
 |---|---|---|
@@ -183,10 +204,9 @@ In order: generate a model without a browser, place one of each element type, ve
 | Cabinets, fronts, handles, plinths, worktops, appliances, tap, hood, stools | Morph box, oriented with x/y/z axes | `CreateMorphs` |
 | Layers `KITCHEN - Cabinets / Worktops / Appliances / Furniture / Walls` | Layer attributes | `CreateLayers` + `SetDetailsOfElements` |
 
-- It finds Archicad on ports **19723–19744** and checks the Tapir version and the commands it needs before building.
-- **Replace previous build** deletes the GUIDs stored in `archicad/last_build.json` (git-ignored) before building again.
-- **Test placement** places one sample per element type (rotated ones where possible). It reads the samples back with `Get3DBoundingBoxes`, reports the deviation in mm and deletes them. Run it once after installing or updating Tapir.
-- Units go from millimetres in the app to metres in Archicad. Elements go on the story chosen in the dialog (index 0 by default).
+- It talks only to Archicad on **127.0.0.1:19723–19744**, requires Tapir 1.4.0 or newer for writing, and checks every command it needs first.
+- **Test placement** places one sample per element type (rotated ones where possible), verifies it by read-back and deletes it. Run it once after installing or updating Tapir.
+- Units: millimetres in the app; metres and degrees in the build file and in Archicad. The room's inside corner goes to the origin.
 - `serve.py` binds to `127.0.0.1`, accepts API calls only from localhost origins (add more with `--allow-origin`) and runs one build at a time.
 
 The payloads follow Tapir's published command definitions (v1.7.3). Older Tapir versions without the optional wall fields fall back to a coordinates-only `CreateWalls`.

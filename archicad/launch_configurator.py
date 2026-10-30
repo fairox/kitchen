@@ -4,7 +4,7 @@ Activate the kitchen configurator from Archicad.
 
   1. Select the kitchen's Zone in Archicad (optional).
   2. Run this script: from Tapir's script palette, by double-clicking
-     "Open from Archicad" in the package, or:  python3 archicad/launch_configurator.py
+     "Open web app" in the Build Kitchen window, or:  python3 archicad/launch_configurator.py
 
 It starts the local configurator server (or reuses one that is already
 running), reads the selected Zone through Tapir and opens the configurator in

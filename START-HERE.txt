@@ -14,27 +14,26 @@ KITCHEN CONFIGURATOR - run it on your computer
    Your browser opens at http://localhost:8000 (the next free port if 8000 is taken).
    Keep the black console window open while you work; close it to stop.
 
-3. Start from Archicad (optional)
-   Select the kitchen's Zone in Archicad, then double-click
-   "Open from Archicad" (.bat on Windows, .command on macOS). The configurator
-   opens with that room fixed and placed where the zone is.
-
-4. Send to Archicad (optional)
+3. Build in Archicad (optional)
    - Install the Tapir add-on for your Archicad version:
      https://github.com/ENZYME-APD/tapir-archicad-automation/releases
-   - Open a project in Archicad.
-   - Check the connection (optional):  python archicad/check_tapir.py
-   - In the configurator click "Send to Archicad". The dot turns green when
-     Archicad is found. Run "Test placement" once, then "Build".
-   - "Replace previous build" removes the last kitchen before building again.
-   Elements are placed on layers named "KITCHEN - ...".
+   - In the web app: Send to Archicad > Download build file.
+   - In Archicad (a project open): run archicad/KitchenBuild.py from Tapir's
+     script palette, or double-click "Build in Archicad" (.bat / .command).
+     The "Kitchen Configurator: Build Kitchen" window picks the build file up
+     from Downloads. Check the story and origin ("From selected Zone" places it
+     at a selected Zone), then press Build in Archicad.
+   - Every element is verified by read-back. Replace removes only this
+     script's own verified previous build, and keeps anything you edited.
+   - Elements are placed on layers named "KITCHEN - ...". Builds are journalled
+     in Documents/Kitchen Configurator/journal.
 
 Troubleshooting
    - "Python was not found" on Windows: reinstall Python with "Add to PATH"
      ticked, or turn off the Microsoft Store "python" alias in
      Settings > Apps > Advanced app settings > App execution aliases.
-   - Archicad not found: Archicad must be running with a project open and
-     Tapir installed; the bridge looks on ports 19723-19744.
+   - Archicad not found: Archicad must be running with a project open (no
+     dialog open) and Tapir installed; the script looks on ports 19723-19744.
    - Without Python you can still open index.html directly in a browser to
      design and export (JSON / CSV / PNG) - only "Send to Archicad" needs it.
 

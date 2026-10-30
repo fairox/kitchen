@@ -17,8 +17,9 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FOLDER = "kitchen-configurator"
 SKIP = {".gitignore", ".gitattributes"}
-EXECUTABLE = {"Start Kitchen Configurator.command", "Open from Archicad.command", "start.sh", "serve.py",
-              "archicad/build_kitchen.py", "archicad/launch_configurator.py", "archicad/check_tapir.py"}
+EXECUTABLE = {"Start Kitchen Configurator.command", "Build in Archicad.command", "start.sh", "serve.py",
+              "archicad/build_kitchen.py", "archicad/launch_configurator.py", "archicad/check_tapir.py",
+              "archicad/KitchenBuild.py"}
 
 
 def files():
@@ -43,8 +44,11 @@ def version():
 
 
 def main():
+    bundled = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "bundle_tapir_script.py"), "--check"], capture_output=True, text=True)
+    if bundled.returncode:
+        sys.exit(bundled.stderr.strip() or bundled.stdout.strip())
     names = files()
-    required = {"index.html", "serve.py", "generator.js", "archicad/build_kitchen.py", "archicad/launch_configurator.py", "vendor/three.r128.min.js",
+    required = {"index.html", "serve.py", "generator.js", "archicad/build_kitchen.py", "archicad/launch_configurator.py", "archicad/KitchenBuild.py", "vendor/three.r128.min.js",
                 "Start Kitchen Configurator.bat", "Start Kitchen Configurator.command", "START-HERE.txt"}
     missing = required - set(names)
     if missing:

@@ -618,6 +618,7 @@
   }
   function exportAs(kind) {
     const base = `kitchen-${params.layout}${params.island ? '-island' : ''}`;
+    if (kind === 'build') $('#ac-download').click();
     if (kind === 'json') download(`${base}.json`, JSON.stringify(model, null, 2), 'application/json');
     if (kind === 'params') download(`${base}-params.json`, JSON.stringify(params, null, 2), 'application/json');
     if (kind === 'csv') {
@@ -665,7 +666,7 @@
     $('#ac-build').disabled = !ready;
     $('#ac-test').disabled = !ready;
     if (!s.bridge) {
-      $('#ac-status').innerHTML = 'The local bridge is not running. This page is static; to build in Archicad run <code>python3 serve.py</code> in the project folder and open <code>http://localhost:8000</code>.';
+      $('#ac-status').innerHTML = 'Not available here: the page is not served by <code>serve.py</code>. Use the build file above.';
     } else if (!s.archicad) {
       $('#ac-status').textContent = `Bridge running, but Archicad was not found on ports ${s.ports || '19723–19744'}. Open a project in Archicad with Tapir installed.`;
     } else {
@@ -682,6 +683,24 @@
   }
 
   $('#btn-archicad').addEventListener('click', openArchicad);
+
+  // The build file the Archicad script reads (format kitchen-configurator-build, version 1).
+  // Placement in metres; the room's inside corner goes to the origin.
+  function buildFile() {
+    return {
+      format: 'kitchen-configurator-build', version: 1, created: new Date().toISOString(), app: 'Kitchen Configurator',
+      name: `${G.LAYOUTS[params.layout].label} kitchen ${params.roomW} x ${params.roomD}`,
+      mode: $('#ac-replace').checked ? 'replace' : 'append', walls: $('#ac-walls').checked,
+      placement: { origin: [(params.originX || 0) / 1000, (params.originY || 0) / 1000, 0], rotationDeg: 0, story: Number($('#ac-floor').value) || 0 },
+      model,
+    };
+  }
+  $('#ac-download').addEventListener('click', () => {
+    const d = new Date(), pad = (n) => String(n).padStart(2, '0');
+    const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+    download(`kitchen-${params.layout}-${stamp}.kitchen-build.json`, JSON.stringify(buildFile()), 'application/json');
+    log('✓ Build file downloaded. In Archicad, the Build Kitchen script picks it up from Downloads.');
+  });
   $('#ac-build').addEventListener('click', async () => {
     const b = $('#ac-build');
     b.disabled = true;

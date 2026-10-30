@@ -163,6 +163,9 @@ select { width: 100%; padding: 5px 6px; border: 1px solid var(--line); border-ra
 dialog { border: 0; border-radius: 14px; padding: 0; box-shadow: 0 20px 60px rgba(0,0,0,.25); width: min(560px, 92vw); }
 dialog::backdrop { background: rgba(20,20,18,.35); }
 .dialog { padding: 20px; }
+.ac-file { background: var(--bg); border-radius: 10px; padding: 12px; margin: 10px 0 14px; }
+.ac-file p { margin: 0 0 10px; }
+.dialog h3 { font-size: 12px; margin: 0 0 4px; color: var(--muted); font-weight: 600; }
 .dialog h2 { font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--ink); margin-bottom: 6px; }
 .muted { color: var(--muted); margin: 0 0 12px; }
 .ac-options { margin-bottom: 10px; }

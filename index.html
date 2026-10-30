@@ -24,6 +24,7 @@
       <div class="menu">
         <button class="ghost" id="btn-export">Export ▾</button>
         <div class="menu-items" id="export-menu">
+          <button data-export="build">Archicad build file</button>
           <button data-export="json">Model JSON</button>
           <button data-export="params">Parameters JSON</button>
           <button data-export="csv">Cabinet schedule CSV</button>
@@ -90,17 +91,24 @@
   <dialog id="ac-dialog">
     <form method="dialog" class="dialog">
       <h2>Send to Archicad</h2>
+      <div class="ac-file">
+        <p><b>Recommended:</b> download the build file, then press <b>Build in Archicad</b> in the
+          <i>Kitchen Configurator: Build Kitchen</i> script (Tapir palette, or <code>archicad/KitchenBuild.py</code>).
+          It picks the file up from Downloads, verifies every element and replaces only its own previous build.</p>
+        <button id="ac-download" type="button" class="primary">Download build file</button>
+      </div>
+      <h3>Or build directly through the local bridge</h3>
       <p class="muted" id="ac-status">Checking connection…</p>
       <div class="ac-options">
         <label class="toggle"><input type="checkbox" id="ac-walls" checked><span>Include room walls, door &amp; window</span></label>
-        <label class="toggle"><input type="checkbox" id="ac-replace" checked><span>Replace previous build</span></label>
+        <label class="toggle"><input type="checkbox" id="ac-replace" checked><span>Replace this app's previous verified build</span></label>
         <label class="field-row"><span>Story index</span><input type="number" id="ac-floor" value="0" step="1"></label>
       </div>
       <pre class="log" id="ac-log"></pre>
       <menu>
         <button value="cancel" class="ghost">Close</button>
         <button id="ac-test" type="button" class="ghost">Test placement</button>
-        <button id="ac-build" type="button" class="primary">Build</button>
+        <button id="ac-build" type="button" class="ghost">Build now</button>
       </menu>
     </form>
   </dialog>

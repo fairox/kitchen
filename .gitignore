@@ -6,3 +6,4 @@ node_modules/
 *.model.json
 dist/
 archicad/server.log
+archicad/builds/
