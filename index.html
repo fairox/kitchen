@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kitchen Configurator</title>
+  <meta name="description" content="Parametric kitchen configurator — galley, L, U, G, peninsula and island layouts with live 3D, plan, work-triangle checks and Archicad export via Tapir.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3 3h18v6H9v12H3z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      <span>Kitchen Configurator</span>
+    </div>
+    <nav class="views" role="tablist">
+      <button data-view="split" class="active">Split</button>
+      <button data-view="3d">3D</button>
+      <button data-view="plan">Plan</button>
+    </nav>
+    <div class="actions">
+      <button id="btn-reset" class="ghost" title="Reset to layout defaults">Reset</button>
+      <button id="btn-link" class="ghost" title="Copy a link with these parameters">Copy link</button>
+      <div class="menu">
+        <button class="ghost" id="btn-export">Export ▾</button>
+        <div class="menu-items" id="export-menu">
+          <button data-export="json">Model JSON</button>
+          <button data-export="params">Parameters JSON</button>
+          <button data-export="csv">Cabinet schedule CSV</button>
+          <button data-export="png-plan">Plan PNG</button>
+          <button data-export="png-3d">3D PNG</button>
+        </div>
+      </div>
+      <button id="btn-archicad" class="primary" title="Send to Archicad via Tapir">
+        <span class="dot" id="ac-dot"></span> Send to Archicad
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="panel" id="controls">
+      <section class="group">
+        <h2>Layout</h2>
+        <div class="layout-grid" id="layout-grid"></div>
+        <label class="toggle" id="island-toggle"><input type="checkbox" data-key="island"><span>Add island</span></label>
+      </section>
+      <div id="fields"></div>
+    </aside>
+
+    <section class="stage" id="stage" data-view="split">
+      <div class="pane pane-3d" id="pane-3d">
+        <div class="pane-tools">
+          <button data-cam="persp">Perspective</button>
+          <button data-cam="front">Front</button>
+          <button data-cam="top">Top</button>
+          <label class="mini"><input type="checkbox" id="cutaway" checked> Cutaway walls</label>
+        </div>
+      </div>
+      <div class="pane pane-plan" id="pane-plan">
+        <canvas id="plan"></canvas>
+        <div class="pane-tools">
+          <label class="mini"><input type="checkbox" id="show-tri" checked> Work triangle</label>
+          <label class="mini"><input type="checkbox" id="show-dims" checked> Dimensions</label>
+          <label class="mini"><input type="checkbox" id="show-wc" checked> Wall units</label>
+        </div>
+        <div class="tooltip" id="tooltip" hidden></div>
+      </div>
+    </section>
+
+    <aside class="panel analysis" id="analysis">
+      <section class="group">
+        <h2>Work triangle</h2>
+        <div class="triangle" id="triangle"></div>
+      </section>
+      <section class="group">
+        <h2>Checks</h2>
+        <ul class="checks" id="checks"></ul>
+      </section>
+      <section class="group">
+        <h2>Summary</h2>
+        <dl class="stats" id="stats"></dl>
+      </section>
+      <section class="group">
+        <h2>Cabinet schedule</h2>
+        <table class="schedule" id="schedule"><thead><tr><th>Code</th><th>Item</th><th>W×D×H</th><th>Qty</th></tr></thead><tbody></tbody></table>
+      </section>
+    </aside>
+  </main>
+
+  <dialog id="ac-dialog">
+    <form method="dialog" class="dialog">
+      <h2>Send to Archicad</h2>
+      <p class="muted" id="ac-status">Checking connection…</p>
+      <div class="ac-options">
+        <label class="toggle"><input type="checkbox" id="ac-walls" checked><span>Include room walls, door &amp; window</span></label>
+        <label class="toggle"><input type="checkbox" id="ac-replace" checked><span>Replace previous build</span></label>
+        <label class="field-row"><span>Story index</span><input type="number" id="ac-floor" value="0" step="1"></label>
+      </div>
+      <pre class="log" id="ac-log"></pre>
+      <menu>
+        <button value="cancel" class="ghost">Close</button>
+        <button id="ac-test" type="button" class="ghost">Test placement</button>
+        <button id="ac-build" type="button" class="primary">Build</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <!-- Three.js r128 (UMD), vendored so the app runs offline next to Archicad -->
+  <script src="vendor/three.r128.min.js"></script>
+  <script src="vendor/OrbitControls.r128.js"></script>
+  <script src="generator.js"></script>
+  <script src="plan2d.js"></script>
+  <script src="viewer3d.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
