@@ -186,6 +186,17 @@
     return wall === 'back' ? [a, p.roomD] : wall === 'front' ? [a, 0] : wall === 'left' ? [0, a] : [p.roomW, a];
   }
 
+  // Floor area that must stay clear in front of an opening, [x0, y0, x1, y1]:
+  // the full swing of an inward door, otherwise a 600 mm approach.
+  function clearZone(o, p) {
+    const depth = o.kind === 'door' && o.swing === 'in' ? o.w : 600;
+    const W = p.roomW, D = p.roomD;
+    if (o.wall === 'back') return [o.a0, D - depth, o.a1, D];
+    if (o.wall === 'front') return [o.a0, 0, o.a1, depth];
+    if (o.wall === 'left') return [0, o.a0, depth, o.a1];
+    return [W - depth, o.a0, W, o.a1];
+  }
+
   // ---------------------------------------------------------------- runs
 
   function makeRun(id, ox, oy, ux, uy, nx, ny, length, opts) {
@@ -336,7 +347,16 @@
       for (const f of free) {
         if (f.cap < it.w - 1e-6) continue;
         // a tall group needs a window-free part of the stretch that is wide enough
-        const zones = tall ? tallFree.map(([a, b]) => [Math.max(a, f.lo), Math.min(b, f.hi)]).filter(([a, b]) => b - a >= it.w - 1e-6) : [[f.lo, f.hi]];
+        let zones = tall ? tallFree.map(([a, b]) => [Math.max(a, f.lo), Math.min(b, f.hi)]).filter(([a, b]) => b - a >= it.w - 1e-6) : [[f.lo, f.hi]];
+        if (it.landing) { // keep worktop beside it where an opening cuts the run, if the stretch allows
+          zones = zones.map(([a, b]) => {
+            const a2 = a + (f.a > 1 ? it.landing : 0), b2 = b - (f.b < run.length - 1 ? it.landing : 0);
+            if (b2 - a2 >= it.w) return [a2, b2];
+            if (b - a2 >= it.w && a2 > a) return [a2, b]; // landing on one side at least
+            if (b2 - a >= it.w && b2 < b) return [a, b2];
+            return [a, b];
+          });
+        }
         for (const [a, b] of zones) {
           const d = it.s < a + it.w / 2 ? a + it.w / 2 - it.s : it.s > b - it.w / 2 ? it.s - (b - it.w / 2) : 0;
           if (d < bestD) { bestD = d; best = { f, a, b }; }
@@ -499,11 +519,12 @@
     // tall: base + every window; wall units: anything reaching into their band.
     const CASING = 50;
     const toS = (run, x, y) => (x - run.ox) * run.ux + (y - run.oy) * run.uy;
+    const voidCache = {};
     function runVoids(run) {
-      const v = { base: [], tall: [], wall: [] };
-      if (run.freestanding) return v;
+      if (voidCache[run.id]) return voidCache[run.id];
+      const v = voidCache[run.id] = { base: [], tall: [], wall: [] };
       for (const o of openings) {
-        if (o.wall !== run.wall) continue;
+        if (run.freestanding || o.wall !== run.wall) continue;
         const sa = toS(run, ...wallPoint(o.wall, o.a0, p)), sb = toS(run, ...wallPoint(o.wall, o.a1, p));
         const m = o.kind === 'window' ? 0 : CASING;
         const iv = [Math.max(0, Math.min(sa, sb) - m), Math.min(run.length, Math.max(sa, sb) + m)];
@@ -512,6 +533,22 @@
         if (o.kind !== 'window' || o.sill < p.counterH + 10) v.base.push(iv);
         v.tall.push(iv);
         if (o.kind !== 'window' ? o.h > p.wallCabElev : o.sill < wtop && o.sill + o.h > p.wallCabElev) v.wall.push([iv[0] - 50, iv[1] + 50]);
+      }
+      // runs on the other walls (and peninsulas) stop short of door swings and passages
+      for (const o of openings) {
+        if (o.kind === 'window' || o.wall === run.wall || run.id === 'island') continue; // an island is moved, not split
+        const z = clearZone(o, p);
+        const tb = run.freestanding ? -p.overhang : 0;
+        const corners = [at(run, 0, tb), at(run, run.length, tb), at(run, 0, bd + p.nosing), at(run, run.length, bd + p.nosing)];
+        const fx0 = Math.min(...corners.map((c) => c[0])), fx1 = Math.max(...corners.map((c) => c[0]));
+        const fy0 = Math.min(...corners.map((c) => c[1])), fy1 = Math.max(...corners.map((c) => c[1]));
+        const ix0 = Math.max(fx0, z[0]), ix1 = Math.min(fx1, z[2]), iy0 = Math.max(fy0, z[1]), iy1 = Math.min(fy1, z[3]);
+        if (ix1 - ix0 < 1 || iy1 - iy0 < 1) continue;
+        const ss = [[ix0, iy0], [ix1, iy0], [ix0, iy1], [ix1, iy1]].map(([x, y]) => toS(run, x, y));
+        const iv = [Math.max(0, Math.min(...ss)), Math.min(run.length, Math.max(...ss))];
+        if (iv[1] - iv[0] < 1) continue;
+        v.base.push(iv); v.tall.push(iv); v.wall.push(iv);
+        notes.push({ level: 'ok', msg: `${run.label} run kept clear of ${o.id}'s ${o.kind === 'door' && o.swing === 'in' ? 'door swing' : 'passage'}.` });
       }
       v.base = mergeIntervals(v.base); v.tall = mergeIntervals(v.tall); v.wall = mergeIntervals(v.wall);
       return v;
@@ -530,15 +567,47 @@
     const itemsByRun = {};
     runIds.forEach((id) => (itemsByRun[id] = []));
     const usable = (run) => [run.startCorner, run.length - run.endCorner];
-    const posOf = (run, f, w) => {
-      const [lo, hi] = usable(run);
+    const posOf = (run, f, w, landing) => {
+      let [lo, hi] = usable(run);
+      if (landing && hi - lo - w >= 2 * landing) { lo += landing; hi -= landing; }
       return lo + w / 2 + f * Math.max(0, hi - lo - w);
     };
     // the viewer's right hand when facing the run, expressed as +1 (along u) or -1
     const rightSign = (run) => (-run.ny * run.ux + run.nx * run.uy > 0 ? 1 : -1);
 
+    // Free wall per run after openings, claimed appliance by appliance, so an
+    // appliance whose run is full moves to another run instead of being dropped.
+    const capacity = {};
+    const capOf = (id) => capacity[id] || (capacity[id] = (() => {
+      const r = runs[id], v = runVoids(r);
+      const tall = gaps(r.startCorner, r.length - r.endCorner, v.tall);
+      return gaps(r.startCorner, r.length - r.endCorner, v.base).map(([a, b]) => ({
+        left: b - a, tallMax: Math.max(0, ...tall.map(([c, d]) => Math.min(b, d) - Math.max(a, c))),
+      }));
+    })());
+    const claim = (id, w, tall) => {
+      const st = capOf(id).find((x) => x.left >= w - 1e-6 && (!tall || x.tallMax >= w - 1e-6));
+      if (st) st.left -= w;
+      return !!st;
+    };
+    const chooseRun = (want, candidates, w, tall, name) => {
+      if (claim(want, w, tall)) return want;
+      const alt = candidates.find((id) => id !== want && claim(id, w, tall));
+      if (!alt) return want;
+      notes.push(`${name} moved to the ${runs[alt].label.toLowerCase()} run: openings and other appliances leave no ${Math.round(w)} mm on the ${runs[want].label.toLowerCase()}.`);
+      return alt;
+    };
+    // order: the hardest to place first
+    const fRun = chooseRun(fridgeRun, wallRuns, p.fridgeW, true, 'Fridge');
+    const sinkGroupW = p.sinkW + (p.dwSide !== 'none' ? 600 : 0);
+    const sRun = chooseRun(sinkRun, runIds, sinkGroupW, false, 'Sink');
+    const cRun = chooseRun(cookRun, runIds, p.cookW, false, 'Cooktop');
+
+    // With "window over sink" the sink is centred under an existing window of its
+    // wall when there is one; only an unfixed room gets a window added over the sink.
+    let sinkUnder = null;
     {
-      const run = runs[sinkRun];
+      const run = runs[sRun];
       const parts = [{ kind: 'sink', w: p.sinkW }];
       if (p.dwSide !== 'none') {
         const after = (p.dwSide === 'right') === (rightSign(run) > 0);
@@ -546,23 +615,23 @@
         else parts.unshift({ kind: 'dishwasher', w: 600 });
       }
       const w = parts.reduce((a, q) => a + q.w, 0);
-      itemsByRun[sinkRun].push({ key: 'sink', parts, w, s: posOf(run, p.sinkPos, w) });
-    }
-    {
-      const run = runs[cookRun];
-      itemsByRun[cookRun].push({ key: 'cook', parts: [{ kind: 'cooktop', w: p.cookW }], w: p.cookW, s: posOf(run, p.cookPos, p.cookW) });
-    }
-    {
-      // a tall unit needs a window- and door-free stretch; try the other wall runs before giving up
-      const fits = (id) => {
-        const r = runs[id];
-        return gaps(r.startCorner, r.length - r.endCorner, runVoids(r).tall).some(([a, b]) => b - a >= p.fridgeW - 1e-6);
-      };
-      let fRun = fridgeRun;
-      if (!fits(fRun)) {
-        const alt = wallRuns.find(fits);
-        if (alt) { notes.push(`Fridge moved to the ${runs[alt].label.toLowerCase()} run: openings leave no ${p.fridgeW} mm stretch on the ${runs[fRun].label.toLowerCase()}.`); fRun = alt; }
+      let sc = posOf(run, p.sinkPos, w);
+      const wins = p.windowOverSink && !run.freestanding
+        ? openings.filter((o) => o.kind === 'window' && o.wall === run.wall && o.sill >= p.counterH - 10) : [];
+      if (wins.length) {
+        const sOf = (o) => toS(run, ...wallPoint(o.wall, (o.a0 + o.a1) / 2, p));
+        const win = wins.reduce((m, o) => (Math.abs(sOf(o) - sc) < Math.abs(sOf(m) - sc) ? o : m), wins[0]);
+        const sinkOff = parts.slice(0, parts.findIndex((q) => q.kind === 'sink')).reduce((a, q) => a + q.w, 0) + p.sinkW / 2;
+        sc = sOf(win) - sinkOff + w / 2;
+        sinkUnder = win.id;
       }
+      itemsByRun[sRun].push({ key: 'sink', parts, w, s: sc });
+    }
+    {
+      const run = runs[cRun];
+      itemsByRun[cRun].push({ key: 'cook', parts: [{ kind: 'cooktop', w: p.cookW }], w: p.cookW, landing: 300, s: posOf(run, p.cookPos, p.cookW, 300) });
+    }
+    {
       const run = runs[fRun];
       const parts = [{ kind: 'fridge', w: p.fridgeW, tall: true }];
       const s0 = posOf(run, p.fridgePos, p.fridgeW);
@@ -711,7 +780,7 @@
 
       // automatic window centred over a wall-run sink, narrowed to clear tall units and other openings
       const sinkSeg = segs.find((g) => g.kind === 'sink');
-      if (p.windowOverSink && sinkSeg && !run.freestanding && wallById[run.wall]) {
+      if (p.windowOverSink && !p.siteFixed && !sinkUnder && sinkSeg && !run.freestanding && wallById[run.wall]) {
         const c = (sinkSeg.s0 + sinkSeg.s1) / 2;
         const stops = mergeIntervals(segs.filter((g) => g.tall).map((g) => [g.s0, g.s1]).concat(voids.tall.map(([a, b]) => [a - 100, b + 100])));
         let room = Math.min(c, run.length - c) - 50;
@@ -814,7 +883,7 @@
     } : null;
     const triangle = { points: tri, legs, total: legs ? legs.sinkCook + legs.cookFridge + legs.fridgeSink : 0 };
 
-    const model = { version: 2, units: 'mm', params: p, assigned, runs: Object.values(runs).map(publicRun), walls, openings, beams, boxes, triangle, notes };
+    const model = { version: 2, units: 'mm', params: p, assigned, sinkUnder, runs: Object.values(runs).map(publicRun), walls, openings, beams, boxes, triangle, notes };
     model.checks = validate(model, runs, { cooktopLanding, sinkLanding });
     model.stats = stats(model);
     model.schedule = schedule(boxes);
@@ -842,7 +911,7 @@
     const p = model.params, bd = p.baseDepth, W = p.roomW, D = p.roomD;
     const out = [];
     const add = (level, msg) => out.push({ level, msg });
-    for (const n of model.notes) add('warn', n);
+    for (const n of model.notes) if (typeof n === 'string') add('warn', n); else add(n.level, n.msg);
 
     // Work triangle — NKBA guideline: each leg 1.2–2.7 m, total ≤ 7.9 m
     const tr = model.triangle;
@@ -908,32 +977,27 @@
         else if (gap < 100) add('warn', `Only ${Math.round(gap)} mm of wall between ${list[i - 1].id} and ${list[i].id} (≥ 100 for a frame).`);
       }
     }
-    const zone = (o, depth, inside) => { // rectangle in front of an opening, inside or outside the room
-      const [x0, y0] = wallPoint(o.wall, o.a0, p), [x1, y1] = wallPoint(o.wall, o.a1, p);
-      const d = inside ? depth : -depth;
-      if (o.wall === 'back') return [Math.min(x0, x1), Math.min(D - d, D), Math.max(x0, x1), Math.max(D - d, D)];
-      if (o.wall === 'front') return [Math.min(x0, x1), Math.min(0, d), Math.max(x0, x1), Math.max(0, d)];
-      if (o.wall === 'left') return [Math.min(0, d), Math.min(y0, y1), Math.max(0, d), Math.max(y0, y1)];
-      return [Math.min(W, W - d), Math.min(y0, y1), Math.max(W, W - d), Math.max(y0, y1)];
-    };
+    const zone = (o, depth) => (o.wall === 'back' ? [o.a0, D - depth, o.a1, D] : o.wall === 'front' ? [o.a0, 0, o.a1, depth] // in front of an opening
+      : o.wall === 'left' ? [0, o.a0, depth, o.a1] : [W - depth, o.a0, W, o.a1]);
     let doorsClear = true;
     for (const o of model.openings) {
       if (o.kind === 'door' && o.swing === 'in') {
-        const hit = solids.find((b) => b.kind !== 'counter' && overlaps(zone(o, o.w, true), aabb(b)));
+        const hit = solids.find((b) => b.kind !== 'counter' && overlaps(zone(o, o.w), aabb(b)));
         if (hit) { add('error', `${o.id} swing clashes with ${hit.label.toLowerCase()}.`); doorsClear = false; }
       }
       if (o.kind === 'door' || o.kind === 'threshold') {
-        const hit = solids.find((b) => overlaps(zone(o, 600, true), aabb(b)));
+        const hit = solids.find((b) => overlaps(zone(o, 600), aabb(b)));
         if (hit && !(o.kind === 'door' && o.swing === 'in' && !doorsClear)) { add('error', `${o.id} passage is blocked by ${hit.label.toLowerCase()}.`); doorsClear = false; }
         if (o.h < 2000) add('warn', `${o.id} clear height is ${o.h} mm (< 2000 headroom).`);
       }
       if (o.kind === 'threshold') add('ok', `${o.id}: ${o.w} mm passage, beam ${o.beamW}×${o.beamD} mm at ${o.h} mm.`);
       if (o.kind === 'window') {
         if (o.sill < p.counterH + 10 && !o.auto) add('warn', `${o.id} sill (${o.sill} mm) is below the worktop — no base units in front of it.`);
-        const tall = model.boxes.find((b) => (b.kind === 'fridge' || b.kind === 'pantry') && overlaps(zone(o, 700, true), aabb(b)));
+        const tall = model.boxes.find((b) => (b.kind === 'fridge' || b.kind === 'pantry') && overlaps(zone(o, 700), aabb(b)));
         if (tall) add('error', `${tall.label} stands in front of ${o.id}.`);
       }
     }
+    if (model.sinkUnder) add('ok', `Sink centred under ${model.sinkUnder}.`);
     if (doorsClear && model.openings.some((o) => o.kind === 'door' || o.kind === 'threshold')) add('ok', 'Doors and passages are clear of cabinets.');
 
     if (model.boxes.some((b) => !Number.isFinite(b.cx + b.cy + b.L + b.D + b.H))) add('error', 'Invalid geometry generated.');
@@ -982,17 +1046,42 @@
     });
   }
 
+  // The site: room size, walls and openings. Once fixed, layouts, the island
+  // and resets never change these; the kitchen is generated around them.
+  const ROOM_KEYS = ['roomW', 'roomD', 'wallH', 'wallT', 'openEnds', 'openings'];
+
+  // A layout's starting parameters for a given (fixed) room: the room keys are
+  // left alone and leg / peninsula lengths scale with the room they were drawn for.
+  function layoutDefaults(layout, room) {
+    const def = JSON.parse(JSON.stringify((LAYOUTS[layout] || LAYOUTS[DEFAULTS.layout]).defaults));
+    if (!room) return def;
+    const W0 = def.roomW || DEFAULTS.roomW, D0 = def.roomD || DEFAULTS.roomD;
+    const W = room.roomW || W0, D = room.roomD || D0;
+    const scale = (v, k, lo, hi) => clamp(Math.round((v * k) / 50) * 50, lo, hi);
+    if (def.legLeft) def.legLeft = scale(def.legLeft, D / D0, 1200, D);
+    if (def.legRight) def.legRight = scale(def.legRight, D / D0, 1200, D);
+    if (def.pensLen) def.pensLen = layout === 'g-shape' ? scale(def.pensLen, W / W0, 600, W) : scale(def.pensLen, D / D0, 600, D);
+    for (const k of ROOM_KEYS) delete def[k];
+    return def;
+  }
+
   // Parameter patch that sizes and centres an island so every aisle meets the
-  // recommended clearance, growing the room when it is too small.
-  function fitIsland(input) {
+  // recommended clearance. With fixedRoom the room is never enlarged: the
+  // island shrinks to fit, or { fail } explains why it cannot.
+  function fitIsland(input, opts) {
+    const fixed = !!(opts && opts.fixedRoom);
     const p = normalise(Object.assign({}, input, { island: true }));
     const runs = LAYOUTS[p.layout].runs, bd = p.baseDepth, clear = 1100;
     const leftM = runs.includes('left') ? bd + clear : 1000;
     const rightM = runs.includes('right') ? bd + clear : 1000;
     const patch = { island: true };
     const needD = 2 * bd + Math.max(p.aisle, 1050) + p.overhang + 1100;
-    if (p.roomD < needD) patch.roomD = Math.ceil(needD / 100) * 100;
     const minLen = 1200;
+    if (fixed) {
+      if (p.roomD < needD) return { fail: `The room is ${p.roomD} mm deep; an island needs ${needD} mm (cabinets, ${Math.max(p.aisle, 1050)} aisle, seating and a walkway).` };
+      if (p.roomW - leftM - rightM < minLen) return { fail: `The room is ${p.roomW} mm wide; an island of ${minLen} mm with clear aisles needs ${leftM + rightM + minLen} mm.` };
+    }
+    if (p.roomD < needD) patch.roomD = Math.ceil(needD / 100) * 100;
     let W = p.roomW;
     if (W - leftM - rightM < minLen) W = patch.roomW = Math.ceil((leftM + rightM + minLen) / 100) * 100;
     patch.islandLen = Math.min(Math.max(p.islandLen, minLen), Math.floor((W - leftM - rightM) / 50) * 50);
@@ -1006,5 +1095,5 @@
     return ids.map((id) => ({ id, label: RUN_LABELS[id], freestanding: id === 'island' || id === 'peninsula' }));
   }
 
-  return { DEFAULTS, LAYOUTS, RUN_LABELS, CAT, normalise, generate, fitIsland, runOptions, aabb };
+  return { DEFAULTS, LAYOUTS, RUN_LABELS, CAT, ROOM_KEYS, normalise, generate, layoutDefaults, fitIsland, runOptions, aabb };
 });

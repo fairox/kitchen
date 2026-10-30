@@ -85,6 +85,17 @@ select { width: 100%; padding: 5px 6px; border: 1px solid var(--line); border-ra
 .app-row .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 
+/* fixed site */
+.site-bar { display: flex; gap: 8px; align-items: center; padding: 8px; border-radius: 8px; background: var(--bg); margin-bottom: 12px; font-size: 12px; color: var(--muted); }
+.site-bar b { color: var(--ink); }
+.site-bar.fixed { background: #eef3e6; color: #4b5536; box-shadow: inset 0 0 0 1px #cfdab9; }
+.site-bar.fixed b::before { content: "\1F512\FE0E  "; font-size: 11px; }
+.site-state { flex: 1; }
+.site-toggle { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 4px 8px; font-size: 12px; white-space: nowrap; }
+.layout-card { position: relative; }
+.layout-badge { position: absolute; top: 4px; right: 4px; min-width: 16px; height: 16px; border-radius: 8px; background: var(--err); color: #fff; font: 600 10px/16px var(--font); font-style: normal; text-align: center; padding: 0 4px; }
+.layout-badge[hidden] { display: none; }
+
 /* openings editor */
 .op-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
 .op-card { border: 1px solid var(--line); border-left: 3px solid var(--olive); border-radius: 8px; padding: 8px; background: #fcfbf9; }

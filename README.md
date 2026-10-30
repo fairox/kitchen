@@ -51,6 +51,18 @@ To build in Archicad, open a project in Archicad with Tapir installed, then clic
 
 The parameters are stored in the URL, so **Copy link** shares the exact design.
 
+### Fixed room: the site comes first
+
+The room is the given condition. That means width, depth, ceiling height, wall thickness, open ends and every door, window and threshold. The first time you edit any of them by hand, the room becomes **fixed** (the Room section shows a green *Room fixed* bar). From then on the kitchen is generated around it:
+
+- **Switching layouts** never touches the room or openings. Leg and peninsula lengths scale to the room the layout was drawn for, and the island is re-fitted.
+- **Add island** shrinks the island to fit with clear aisles. If the room is too small, it says why and leaves the island off; it never enlarges the room.
+- **Reset** rebuilds the kitchen and keeps the room.
+- The **layout thumbnails** show each layout generated in *your* room, with a red badge counting the errors it would have there.
+- **All runs avoid openings**, not just those on the opening's wall. Runs on the other walls and peninsulas stop short of door swings and passages ("kept clear of D1"). Appliances that no longer fit on their run move to another run instead of being dropped, and the cooktop keeps worktop beside it where an opening cuts the run.
+- With *Window over sink*, the sink is **centred under an existing window** on its wall. In a fixed room no window is ever added.
+- The fixed room is saved **in this browser** and restored on the next visit. It is also stored in the link, so *Copy link* shares it. **Release** in the Room bar lets layouts change the room again.
+
 ### Openings: doors, windows, thresholds
 
 Each opening is placed precisely, in millimetres:

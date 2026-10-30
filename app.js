@@ -9,11 +9,30 @@
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
   // ------------------------------------------------------------------ state
-  // the hash stores a diff against DEFAULTS, so it is applied on top of DEFAULTS alone
+  // The site (room size, walls, openings — G.ROOM_KEYS) becomes fixed the first
+  // time it is edited by hand. A fixed site is kept in this browser and in the
+  // link, and nothing else (layouts, island, reset) may change it.
+  const SITE_STORE = 'kitchen-configurator.site.v1';
+  const pickRoom = (p) => Object.fromEntries(G.ROOM_KEYS.map((k) => [k, JSON.parse(JSON.stringify(p[k]))]));
+  function loadSite() {
+    try { const v = JSON.parse(localStorage.getItem(SITE_STORE)); return v && v.roomW ? v : null; } catch (e) { return null; }
+  }
+  function saveSite() {
+    try {
+      if (params.siteFixed) localStorage.setItem(SITE_STORE, JSON.stringify(pickRoom(params)));
+      else localStorage.removeItem(SITE_STORE);
+    } catch (e) { /* storage unavailable: the link still carries the site */ }
+  }
+
+  // the hash stores a diff against DEFAULTS, so it is applied on top of DEFAULTS alone;
+  // without a hash, a site fixed earlier in this browser is restored
   const fromHash = readHash();
+  const storedSite = Object.keys(fromHash).length ? null : loadSite();
   let params = Object.keys(fromHash).length
     ? Object.assign({}, G.DEFAULTS, fromHash)
-    : Object.assign({}, G.DEFAULTS, G.LAYOUTS[G.DEFAULTS.layout].defaults);
+    : storedSite
+      ? Object.assign({}, G.DEFAULTS, G.layoutDefaults(G.DEFAULTS.layout, storedSite), storedSite, { siteFixed: true })
+      : Object.assign({}, G.DEFAULTS, G.LAYOUTS[G.DEFAULTS.layout].defaults, { siteFixed: false });
   let model = null;
   let highlight = null;
   let highlightOpening = null;
@@ -105,6 +124,7 @@
       d.open = sec.open;
       d.innerHTML = `<summary><h2>${sec.title}</h2></summary>`;
       fieldsEl.appendChild(d);
+      if (sec.title === 'Room') buildSiteBar(d);
       if (sec.custom === 'openings') buildOpenings(d);
       else if (sec.custom === 'appliances') buildAppliances(d);
       else if (sec.custom === 'finish') buildFinish(d);
@@ -181,6 +201,33 @@
     d.appendChild(buildField({ key: 'windowW', label: 'Window width', min: 600, max: 2400, step: 50, unit: 'mm', show: (p) => p.windowOverSink }));
   }
 
+  // ------------------------------------------------------------------ site (fixed room) bar
+  let siteBar = null;
+  function buildSiteBar(d) {
+    siteBar = document.createElement('div');
+    siteBar.className = 'site-bar';
+    siteBar.innerHTML = `<span class="site-state"></span><button class="site-toggle"></button>`;
+    $('.site-toggle', siteBar).addEventListener('click', () => {
+      if (params.siteFixed) {
+        params.siteFixed = false;
+        toast('Room released — layouts may resize it again.');
+      } else {
+        params.siteFixed = true;
+        toast('Room and openings fixed.');
+      }
+      refresh();
+    });
+    d.appendChild(siteBar);
+  }
+  function renderSiteBar() {
+    if (!siteBar) return;
+    siteBar.classList.toggle('fixed', !!params.siteFixed);
+    $('.site-state', siteBar).innerHTML = params.siteFixed
+      ? `<b>Room fixed</b> ${params.roomW} × ${params.roomD} × ${params.wallH} mm · ${params.openings.length} opening${params.openings.length === 1 ? '' : 's'}. Layouts are fitted around it.`
+      : '<b>Room not fixed</b> — layouts use their own sample room. Edit any size or opening to fix it.';
+    $('.site-toggle', siteBar).textContent = params.siteFixed ? 'Release' : 'Fix room';
+  }
+
   // ------------------------------------------------------------------ openings editor
   // Each opening is placed by wall, reference corner and an exact offset in mm
   // from that interior corner to the opening's near edge (see generator.js).
@@ -218,6 +265,7 @@
     if (type === 'window') Object.assign(o, { height: 1200, sill: 1050 });
     if (type === 'threshold') Object.assign(o, { height: Math.min(2200, params.wallH - 300), beamWidth: 0, bearing: 200 });
     params.openings = params.openings.concat([o]);
+    fixSite();
     refresh();
   }
 
@@ -228,6 +276,7 @@
       if (placed) patch.offset = value === 'start' ? placed.fromStart : placed.fromEnd;
     }
     params.openings = params.openings.map((o, j) => (j === i ? Object.assign({}, o, patch) : o));
+    fixSite();
     refresh();
   }
 
@@ -277,7 +326,7 @@
       ${o.type === 'door' ? `<div class="op-row"><span class="op-lbl">Hinge</span>${seg('hinge', [['start', c0], ['end', c1]])}<span class="op-lbl">Swing</span>${seg('swing', [['in', 'In'], ['out', 'Out']])}</div>` : ''}
       <div class="op-readout"></div>`;
     $('[data-wall]', card).addEventListener('change', (e) => setOpening(i, 'wall', e.target.value));
-    $('.op-del', card).addEventListener('click', () => { params.openings = params.openings.filter((_, j) => j !== i); refresh(); });
+    $('.op-del', card).addEventListener('click', () => { params.openings = params.openings.filter((_, j) => j !== i); fixSite(); refresh(); });
     for (const inp of $$('input[data-k]', card)) {
       inp.addEventListener('change', () => setOpening(i, inp.dataset.k, Number(inp.value)));
       inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') inp.blur(); });
@@ -330,10 +379,27 @@
     }
     requestAnimationFrame(drawThumbs);
   }
+  // With a fixed site each thumbnail is that layout generated in *this* room,
+  // with a badge counting the errors it would have there.
+  let thumbSig = '';
   function drawThumbs() {
+    const room = params.siteFixed ? pickRoom(params) : null;
+    const sig = JSON.stringify(room);
+    if (sig === thumbSig) return;
+    thumbSig = sig;
     for (const b of $$('.layout-card')) {
-      const m = G.generate(Object.assign({}, G.DEFAULTS, G.LAYOUTS[b.dataset.layout].defaults, { layout: b.dataset.layout, wallCabs: false }));
+      const id = b.dataset.layout;
+      const base = room
+        ? Object.assign({}, params, G.layoutDefaults(id, room), room, { layout: id, island: false })
+        : Object.assign({}, G.DEFAULTS, G.LAYOUTS[id].defaults, { layout: id });
+      const m = G.generate(Object.assign(base, { wallCabs: false }));
       KitchenPlan.draw($('canvas', b), m, { thumb: true, dims: false });
+      const errors = room ? m.checks.filter((c) => c.level === 'error') : [];
+      let badge = $('.layout-badge', b);
+      if (!badge) { badge = document.createElement('i'); badge.className = 'layout-badge'; b.appendChild(badge); }
+      badge.hidden = !errors.length;
+      badge.textContent = errors.length;
+      b.title = errors.length ? `In this room: ${errors.map((c) => c.msg).join(' ')}` : '';
     }
   }
 
@@ -341,12 +407,26 @@
   function set(key, value) {
     if (typeof G.DEFAULTS[key] === 'number') value = Number(value);
     params[key] = value;
+    if (G.ROOM_KEYS.includes(key)) fixSite();
     refresh();
   }
 
+  function fixSite() {
+    if (params.siteFixed) return;
+    params.siteFixed = true;
+    toast('Room and openings are now fixed — layouts will be fitted around them.');
+  }
+
   function setLayout(id) {
-    const island = params.island && G.LAYOUTS[id].island;
-    params = Object.assign({}, params, JSON.parse(JSON.stringify(G.LAYOUTS[id].defaults)), { layout: id, island });
+    const room = params.siteFixed ? pickRoom(params) : null;
+    const defaults = room ? G.layoutDefaults(id, room) : G.layoutDefaults(id);
+    const wantIsland = params.island && G.LAYOUTS[id].island;
+    params = Object.assign({}, params, defaults, room || {}, { layout: id, island: false });
+    if (wantIsland) { // keep the island, re-fitted to this layout (and to the fixed room)
+      const patch = G.fitIsland(params, { fixedRoom: !!room });
+      if (patch.fail) toast(`Island removed: ${patch.fail}`);
+      else Object.assign(params, patch);
+    }
     viewer.reframe();
     refresh();
   }
@@ -354,12 +434,18 @@
   $('#island-toggle input').addEventListener('change', (e) => {
     params.island = e.target.checked;
     if (params.island) {
-      const patch = G.fitIsland(params);
-      if (patch.roomW || patch.roomD) {
-        toast(`Room enlarged to ${patch.roomW || params.roomW} × ${patch.roomD || params.roomD} mm to fit the island.`);
-        viewer.reframe();
+      const patch = G.fitIsland(params, { fixedRoom: !!params.siteFixed });
+      if (patch.fail) {
+        params.island = false;
+        e.target.checked = false;
+        toast(patch.fail);
+      } else {
+        if (patch.roomW || patch.roomD) {
+          toast(`Room enlarged to ${patch.roomW || params.roomW} × ${patch.roomD || params.roomD} mm to fit the island. Edit the room to fix its size.`);
+          viewer.reframe();
+        }
+        Object.assign(params, patch);
       }
-      Object.assign(params, patch);
     } else {
       for (const k of ['sinkRun', 'cookRun']) if (params[k] === 'island') params[k] = G.LAYOUTS[params.layout].defaults[k];
     }
@@ -382,6 +468,9 @@
       if (e.f.show) e.wrap.hidden = !e.f.show(params);
     }
     renderOpenings();
+    renderSiteBar();
+    saveSite();
+    drawThumbs();
     $$('.layout-card').forEach((b) => b.classList.toggle('active', b.dataset.layout === params.layout));
     const it = $('#island-toggle');
     it.hidden = !G.LAYOUTS[params.layout].island;
@@ -467,8 +556,12 @@
   $('#cutaway').addEventListener('change', (e) => viewer.setCutaway(e.target.checked));
 
   // top bar actions
+  // Reset rebuilds the kitchen; a fixed site stays as it is
   $('#btn-reset').addEventListener('click', () => {
-    params = Object.assign({}, G.DEFAULTS, G.LAYOUTS[params.layout].defaults, { layout: params.layout });
+    const room = params.siteFixed ? pickRoom(params) : null;
+    params = Object.assign({}, G.DEFAULTS, room ? G.layoutDefaults(params.layout, room) : G.LAYOUTS[params.layout].defaults,
+      room || {}, { layout: params.layout, siteFixed: !!room });
+    toast(room ? 'Kitchen reset — the fixed room and openings were kept.' : 'Reset to layout defaults.');
     viewer.reframe();
     refresh();
   });
@@ -573,6 +666,7 @@
   buildLayoutGrid();
   buildFields();
   refresh();
+  if (storedSite) toast('Restored your fixed room and openings.');
   checkBridge();
   window.addEventListener('hashchange', () => { params = Object.assign({}, G.DEFAULTS, readHash()); refresh(); });
 })();

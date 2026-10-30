@@ -89,5 +89,41 @@ for (const c of cases) {
   if (c.island) m.checks.filter((x) => x.level === 'error').forEach((x) => fail(`fitted island: ${x.msg}`));
 }
 
+// A fixed site: every layout keeps the room and openings exactly, nothing blocks a door or passage,
+// and the island is fitted inside the room or refused, never by resizing the room.
+const sites = [
+  { roomW: 3400, roomD: 3100, wallH: 2600, wallT: 200, openEnds: false, openings: [
+    { type: 'door', wall: 'left', from: 'start', offset: 300, width: 900 },
+    { type: 'window', wall: 'back', from: 'start', offset: 900, width: 1400, sill: 1000 },
+    { type: 'threshold', wall: 'front', from: 'end', offset: 250, width: 1400, height: 2150 }] },
+  { roomW: 5200, roomD: 4600, wallH: 2800, wallT: 250, openEnds: false, openings: [
+    { type: 'door', wall: 'front', from: 'start', offset: 150, width: 1000, swing: 'in', hinge: 'start' },
+    { type: 'door', wall: 'right', from: 'end', offset: 200, width: 800, swing: 'in', hinge: 'end' },
+    { type: 'window', wall: 'left', from: 'start', offset: 1800, width: 1600, sill: 950 }] },
+];
+for (const [si, site] of sites.entries()) {
+  for (const layout of Object.keys(G.LAYOUTS)) {
+    for (const island of [false, true]) {
+      if (island && !G.LAYOUTS[layout].island) continue;
+      let p = Object.assign({}, G.DEFAULTS, G.layoutDefaults(layout, site), JSON.parse(JSON.stringify(site)), { layout, siteFixed: true });
+      if (island) {
+        const fit = G.fitIsland(p, { fixedRoom: true });
+        if (fit.roomW || fit.roomD) fail(`site ${si} ${layout}: fitIsland resized the room`);
+        if (fit.fail) continue;
+        p = Object.assign(p, fit);
+      }
+      const m = G.generate(p);
+      const tag = `site ${si} ${layout}${island ? '+island' : ''}`;
+      for (const k of ['roomW', 'roomD', 'wallH', 'wallT']) if (m.params[k] !== site[k]) fail(`${tag}: ${k} changed to ${m.params[k]}`);
+      const mine = m.openings.filter((o) => !o.auto);
+      if (mine.length !== site.openings.length) fail(`${tag}: ${mine.length} openings instead of ${site.openings.length}`);
+      if (m.openings.some((o) => o.auto)) fail(`${tag}: a window was added to a fixed site`);
+      site.openings.forEach((o, i) => { if (mine[i] && mine[i].w !== o.width) fail(`${tag}: ${mine[i].id} width changed`); });
+      m.checks.filter((c) => c.level === 'error' && /swing|passage|stands in front/.test(c.msg) && !/island/.test(c.msg))
+        .forEach((c) => fail(`${tag}: ${c.msg}`));
+    }
+  }
+}
+
 console.log(failures ? `\n${failures} failure(s)` : '\nAll checks passed.');
 process.exit(failures ? 1 : 0);
