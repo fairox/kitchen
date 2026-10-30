@@ -474,6 +474,11 @@ def dry_run(model: dict, options: dict | None = None) -> dict:
 
 
 def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):  # Windows consoles may not encode the log's dashes
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("model", help="model JSON exported from the configurator")
     ap.add_argument("--test", action="store_true", help="test placement only (creates and removes samples)")

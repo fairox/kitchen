@@ -6,7 +6,8 @@ Serves the static web app and bridges it to Archicad. Archicad's JSON API sends
 no CORS headers, so the browser cannot call it directly; this server receives
 the generated model from the page and runs archicad/build_kitchen.py.
 
-  python3 serve.py            -> http://localhost:8000
+  python3 serve.py                 -> http://localhost:8000 (next free port if taken)
+  python3 serve.py --open          -> also opens the browser
   python3 serve.py --port 8080 --allow-origin http://192.168.1.20:8000
 
 Endpoints
@@ -22,6 +23,7 @@ import json
 import os
 import sys
 import threading
+import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -44,6 +46,12 @@ def origin_ok(origin):
 
 
 class Handler(SimpleHTTPRequestHandler):
+    # Windows takes MIME types from the registry, where .js is sometimes text/plain
+    extensions_map = dict(SimpleHTTPRequestHandler.extensions_map, **{
+        ".js": "text/javascript", ".css": "text/css", ".html": "text/html",
+        ".json": "application/json", ".png": "image/png", ".svg": "image/svg+xml",
+    })
+
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=ROOT, **kw)
 
@@ -112,14 +120,38 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main():
+    if sys.version_info < (3, 8):
+        sys.exit("Python 3.8 or newer is required.")
+    for stream in (sys.stdout, sys.stderr):  # Windows consoles may not encode the log's dashes/arrows
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
     ap = argparse.ArgumentParser(description="Kitchen configurator local server")
-    ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--port", type=int, default=8000, help="first port to try (default 8000)")
     ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--open", action="store_true", help="open the app in the default browser")
     ap.add_argument("--allow-origin", action="append", default=[], help="extra allowed Origin (repeatable)")
     a = ap.parse_args()
     ALLOWED.update(a.allow_origin)
-    srv = ThreadingHTTPServer((a.host, a.port), Handler)
-    print(f"Kitchen configurator: http://localhost:{a.port}  (Ctrl+C to stop)")
+    srv = None
+    for port in range(a.port, a.port + 20):
+        try:
+            srv = ThreadingHTTPServer((a.host, port), Handler)
+            break
+        except OSError:
+            continue
+    if srv is None:
+        sys.exit(f"No free port between {a.port} and {a.port + 19}.")
+    url = f"http://localhost:{port}/"
+    print("")
+    print("  Kitchen Configurator is running")
+    print(f"  Open {url} in your browser")
+    print("  Open a project in Archicad (Tapir add-on installed) to use 'Send to Archicad'.")
+    print("  Close this window or press Ctrl+C to stop.")
+    print("")
+    if a.open:
+        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

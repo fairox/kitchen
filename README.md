@@ -6,6 +6,16 @@ It covers the standard layouts from the reference sheets: **one-wall, galley, L-
 
 ![layouts](https://img.shields.io/badge/layouts-6_%2B_island-e8742c) ![deps](https://img.shields.io/badge/build_step-none-5b5d3f)
 
+## Run it on your computer
+
+Download the latest package zip (or clone the repo), unzip it and double-click:
+
+| Windows | macOS | Linux |
+|---|---|---|
+| `Start Kitchen Configurator.bat` | `Start Kitchen Configurator.command` (first time: right-click → Open) | `./start.sh` |
+
+The launcher starts the local server and opens your browser. All you need is **Python 3.8+**, with no internet, npm or extra packages. `START-HERE.txt` covers setup, Archicad/Tapir and troubleshooting. To build the zip yourself, run `python3 tools/package.py`. It is written to `dist/`.
+
 ## Quick start
 
 ```bash
