@@ -14,7 +14,12 @@ KITCHEN CONFIGURATOR - run it on your computer
    Your browser opens at http://localhost:8000 (the next free port if 8000 is taken).
    Keep the black console window open while you work; close it to stop.
 
-3. Send to Archicad (optional)
+3. Start from Archicad (optional)
+   Select the kitchen's Zone in Archicad, then double-click
+   "Open from Archicad" (.bat on Windows, .command on macOS). The configurator
+   opens with that room fixed and placed where the zone is.
+
+4. Send to Archicad (optional)
    - Install the Tapir add-on for your Archicad version:
      https://github.com/ENZYME-APD/tapir-archicad-automation/releases
    - Open a project in Archicad.

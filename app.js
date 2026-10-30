@@ -76,6 +76,16 @@
         { key: 'stoolSpacing', label: 'Stool spacing', min: 450, max: 900, step: 10, unit: 'mm', show: freestanding },
       ],
     },
+    {
+      title: 'Walls', open: true, fields: [
+        ...['back', 'left', 'right', 'front'].map((w) => ({
+          key: `style${w[0].toUpperCase()}${w.slice(1)}`, label: `${w[0].toUpperCase()}${w.slice(1)} wall`, type: 'seg',
+          options: [['standard', 'Base + wall'], ['tall', 'Tall to ceiling'], ['base', 'Base only']], show: has(w),
+        })),
+        { key: 'tallNiche', label: 'Open niche in tall walls', min: 0, max: 2400, step: 50, unit: 'mm',
+          show: (p) => ['Back', 'Left', 'Right', 'Front'].some((w) => p[`style${w}`] === 'tall' && G.LAYOUTS[p.layout].runs.includes(w.toLowerCase())) },
+      ],
+    },
     { title: 'Appliances', open: true, custom: 'appliances' },
     {
       title: 'Base cabinets', open: false, fields: [
@@ -93,14 +103,23 @@
         { key: 'wallCabElev', label: 'Wall unit bottom', min: 1300, max: 1700, step: 10, unit: 'mm', show: (p) => p.wallCabs },
         { key: 'wallCabH', label: 'Wall unit height', min: 300, max: 1100, step: 10, unit: 'mm', show: (p) => p.wallCabs },
         { key: 'wallCabDepth', label: 'Wall unit depth', min: 250, max: 450, step: 10, unit: 'mm', show: (p) => p.wallCabs },
-        { key: 'tallH', label: 'Tall unit height', min: 1800, max: 2700, step: 10, unit: 'mm' },
-        { key: 'pantryCount', label: 'Tall pantry units', min: 0, max: 3, step: 1, unit: '' },
+        { key: 'alignTops', label: 'Tall and wall units up to the ceiling', type: 'toggle' },
+        { key: 'tallH', label: 'Tall unit height', min: 1800, max: 3000, step: 10, unit: 'mm', show: (p) => !p.alignTops },
+        { key: 'pantryCount', label: 'Tall pantry units by the fridge', min: 0, max: 3, step: 1, unit: '' },
+        { key: 'ovenTowers', label: 'Oven towers', min: 0, max: 3, step: 1, unit: '' },
+        { key: 'ovenRun', label: 'Oven towers on', type: 'select', show: (p) => p.ovenTowers > 0,
+          options: (p) => G.runOptions(p.layout, false).filter((r) => !r.freestanding).map((r) => [r.id, r.label]) },
+        { key: 'ovenPos', label: 'Oven tower position', min: 0, max: 1, step: 0.01, unit: '%', show: (p) => p.ovenTowers > 0 },
+        { key: 'handles', label: 'Handles', type: 'seg', options: [['bar', 'Bar handles'], ['none', 'Handleless']], show: (p) => p.fronts },
       ],
     },
     { title: 'Finish', open: false, custom: 'finish' },
   ];
 
   const PRESETS = [
+    // after the reference photos: oak base and tall units with cashmere wall units; mocha tall wall over stone
+    { name: 'Oak & cashmere', frontColor: '#b08f6e', wallFrontColor: '#ddd4c6', tallFrontColor: '#a9876a', woodBase: true, woodWall: false, woodTall: true, counterColor: '#e4ddd2', floorColor: '#d9d2c7', wallColor: '#ece7df', handles: 'none' },
+    { name: 'Mocha & stone', frontColor: '#5b4842', wallFrontColor: '#5b4842', tallFrontColor: '#57443e', woodBase: false, woodWall: false, woodTall: false, counterColor: '#e7e3dc', floorColor: '#8e8a84', wallColor: '#d9d6d0', handles: 'none' },
     { name: 'Oat', frontColor: '#e8e2d6', counterColor: '#3d3b38', floorColor: '#d9cfc0' },
     { name: 'Olive', frontColor: '#6f7350', counterColor: '#e9e4da', floorColor: '#c9b79c' },
     { name: 'Navy', frontColor: '#2f3e55', counterColor: '#efece6', floorColor: '#d2c4ae' },
@@ -197,7 +216,8 @@
     d.appendChild(buildField({ key: 'dwSide', label: 'Dishwasher', type: 'seg', options: [['left', 'Left of sink'], ['right', 'Right of sink'], ['none', 'None']] }));
     d.appendChild(buildField({ key: 'cookW', label: 'Cooktop unit', type: 'seg', options: [['600', '600'], ['750', '750'], ['900', '900']] }));
     d.appendChild(buildField({ key: 'fridgeW', label: 'Fridge unit', type: 'seg', options: [['600', '600'], ['700', '700'], ['900', '900 (side-by-side)']] }));
-    d.appendChild(buildField({ key: 'windowOverSink', label: 'Window over sink', type: 'toggle' }));
+    d.appendChild(buildField({ key: 'prepSink', label: 'Prep sink on the island', type: 'toggle', show: (p) => p.island }));
+    d.appendChild(buildField({ key: 'windowOverSink', label: 'Sink under a window (adds one if the room is not fixed)', type: 'toggle' }));
     d.appendChild(buildField({ key: 'windowW', label: 'Window width', min: 600, max: 2400, step: 50, unit: 'mm', show: (p) => p.windowOverSink }));
   }
 
@@ -222,8 +242,9 @@
   function renderSiteBar() {
     if (!siteBar) return;
     siteBar.classList.toggle('fixed', !!params.siteFixed);
+    const from = params.siteSource ? ` from ${escapeHtml(params.siteSource)}, placed at ${Math.round(params.originX)}, ${Math.round(params.originY)} mm` : '';
     $('.site-state', siteBar).innerHTML = params.siteFixed
-      ? `<b>Room fixed</b> ${params.roomW} × ${params.roomD} × ${params.wallH} mm · ${params.openings.length} opening${params.openings.length === 1 ? '' : 's'}. Layouts are fitted around it.`
+      ? `<b>Room fixed</b> ${params.roomW} × ${params.roomD} × ${params.wallH} mm${from} · ${params.openings.length} opening${params.openings.length === 1 ? '' : 's'}. Layouts are fitted around it.`
       : '<b>Room not fixed</b> — layouts use their own sample room. Edit any size or opening to fix it.';
     $('.site-toggle', siteBar).textContent = params.siteFixed ? 'Release' : 'Fix room';
   }
@@ -343,18 +364,19 @@
 
   function buildFinish(d) {
     const pre = document.createElement('div');
-    pre.className = 'seg';
+    pre.className = 'seg presets';
     pre.style.marginBottom = '10px';
     pre.innerHTML = PRESETS.map((p, i) => `<button data-i="${i}">${p.name}</button>`).join('');
     $$('button', pre).forEach((b) => b.addEventListener('click', () => {
       const p = PRESETS[b.dataset.i];
-      Object.assign(params, { frontColor: p.frontColor, counterColor: p.counterColor, floorColor: p.floorColor });
+      const { name, ...look } = p;
+      Object.assign(params, { wallFrontColor: p.frontColor, tallFrontColor: p.frontColor, woodBase: false, woodWall: false, woodTall: false }, look);
       refresh();
     }));
     d.appendChild(pre);
     const grid = document.createElement('div');
     grid.className = 'colors';
-    for (const [k, l] of [['frontColor', 'Fronts'], ['counterColor', 'Worktop'], ['wallColor', 'Walls'], ['floorColor', 'Floor']]) {
+    for (const [k, l] of [['frontColor', 'Base fronts'], ['wallFrontColor', 'Wall units'], ['tallFrontColor', 'Tall units'], ['counterColor', 'Worktop'], ['wallColor', 'Walls'], ['floorColor', 'Floor']]) {
       const c = document.createElement('label');
       c.className = 'color';
       c.innerHTML = `<input type="color"> ${l}`;
@@ -364,6 +386,19 @@
       grid.appendChild(c);
     }
     d.appendChild(grid);
+    const wood = document.createElement('div');
+    wood.className = 'wood-row';
+    wood.innerHTML = '<span class="op-lbl">Wood grain</span>';
+    for (const [k, l] of [['woodBase', 'Base'], ['woodWall', 'Wall'], ['woodTall', 'Tall']]) {
+      const lab = document.createElement('label');
+      lab.className = 'toggle';
+      lab.innerHTML = `<input type="checkbox"><span>${l}</span>`;
+      const inp = $('input', lab);
+      inp.addEventListener('change', () => set(k, inp.checked));
+      fieldEls.push({ f: { key: k }, wrap: lab, sync: () => (inp.checked = !!params[k]) });
+      wood.appendChild(lab);
+    }
+    d.appendChild(wood);
   }
 
   // layout picker with live thumbnails drawn by the plan renderer
@@ -420,7 +455,7 @@
   function setLayout(id) {
     const room = params.siteFixed ? pickRoom(params) : null;
     const defaults = room ? G.layoutDefaults(id, room) : G.layoutDefaults(id);
-    const wantIsland = params.island && G.LAYOUTS[id].island;
+    const wantIsland = ('island' in defaults ? defaults.island : params.island) && G.LAYOUTS[id].island;
     params = Object.assign({}, params, defaults, room || {}, { layout: id, island: false });
     if (wantIsland) { // keep the island, re-fitted to this layout (and to the fixed room)
       const patch = G.fitIsland(params, { fixedRoom: !!room });
@@ -621,6 +656,8 @@
 
   async function openArchicad() {
     $('#ac-log').textContent = '';
+    $('#ac-walls').checked = params.acWalls !== false;
+    $('#ac-floor').value = params.acFloor || 0;
     dlg.showModal();
     $('#ac-status').textContent = 'Checking connection…';
     const s = await checkBridge();

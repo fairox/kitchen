@@ -86,7 +86,12 @@
       const f = footprint(b);
       poly(f, C.tall, C.counterEdge, 1);
       ctx.beginPath(); ctx.moveTo(X(f[0][0]), Y(f[0][1])); ctx.lineTo(X(f[2][0]), Y(f[2][1])); ctx.strokeStyle = C.counterEdge; ctx.lineWidth = 0.7; ctx.stroke();
+      if (b.tower && !opts.thumb) {
+        ctx.fillStyle = C.text; ctx.font = `600 ${Math.max(8, 80 * s)}px Inter, system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('OV', X(b.cx), Y(b.cy));
+      }
     }
+    if (!opts.thumb) for (const b of by('shelf')) poly(footprint(b), null, C.wallCab, 0.8, [2, 3]);
     for (const b of by('fridge')) {
       poly(footprint(b), '#fff', C.appliance, 1.2);
       // asterisk symbol, as in the reference plans

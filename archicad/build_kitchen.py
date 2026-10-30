@@ -209,6 +209,21 @@ def expected_aabb(b: dict, z_base: float) -> tuple:
 
 # ----------------------------------------------------------------------------- helpers
 
+def placed(model: dict) -> dict:
+    """The model moved to where its room sits in the project (params.originX/Y, mm)."""
+    ox = float(model.get("params", {}).get("originX") or 0)
+    oy = float(model.get("params", {}).get("originY") or 0)
+    if not ox and not oy:
+        return model
+    m = json.loads(json.dumps(model))
+    for b in m["boxes"]:
+        b["cx"] += ox
+        b["cy"] += oy
+    for w in m.get("walls", []) + m.get("beams", []):
+        w["x1"] += ox; w["x2"] += ox; w["y1"] += oy; w["y2"] += oy
+    return m
+
+
 def guids_of(result: dict) -> tuple[list, list]:
     ok, errors = [], []
     for item in result.get("elements", []):
@@ -359,6 +374,7 @@ def check_commands(ac: Archicad, log) -> str:
 def build(model: dict, options: dict | None = None, log=print, port: int | None = None) -> dict:
     opts = {"walls": True, "replace": True, "floorIndex": 0}
     opts.update(options or {})
+    model = placed(model)
     ac = Archicad(port)
     check_commands(ac, log)
     floor = int(opts["floorIndex"])
@@ -414,6 +430,7 @@ def build(model: dict, options: dict | None = None, log=print, port: int | None 
 
 def test_placement(model: dict, log=print, port: int | None = None) -> dict:
     """Place one element of each type, read the geometry back, compare, delete."""
+    model = placed(model)
     ac = Archicad(port)
     check_commands(ac, log)
     z_base = story_level(ac, 0, log)
@@ -462,6 +479,7 @@ def test_placement(model: dict, log=print, port: int | None = None) -> dict:
 def dry_run(model: dict, options: dict | None = None) -> dict:
     opts = {"walls": True, "floorIndex": 0}
     opts.update(options or {})
+    model = placed(model)
     return {
         "CreateWalls": {"wallsData": [wall_payload(w, opts["floorIndex"]) for w in wall_segments(model)]} if opts["walls"] else None,
         "CreateDoors/Windows": [{"id": o["id"], "kind": o["kind"], "segment": segment_for(o, wall_segments(model))[0],

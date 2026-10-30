@@ -17,7 +17,8 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FOLDER = "kitchen-configurator"
 SKIP = {".gitignore", ".gitattributes"}
-EXECUTABLE = {"Start Kitchen Configurator.command", "start.sh", "serve.py", "archicad/build_kitchen.py"}
+EXECUTABLE = {"Start Kitchen Configurator.command", "Open from Archicad.command", "start.sh", "serve.py",
+              "archicad/build_kitchen.py", "archicad/launch_configurator.py", "archicad/check_tapir.py"}
 
 
 def files():
@@ -43,7 +44,7 @@ def version():
 
 def main():
     names = files()
-    required = {"index.html", "serve.py", "generator.js", "archicad/build_kitchen.py", "vendor/three.r128.min.js",
+    required = {"index.html", "serve.py", "generator.js", "archicad/build_kitchen.py", "archicad/launch_configurator.py", "vendor/three.r128.min.js",
                 "Start Kitchen Configurator.bat", "Start Kitchen Configurator.command", "START-HERE.txt"}
     missing = required - set(names)
     if missing:

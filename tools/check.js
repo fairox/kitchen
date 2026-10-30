@@ -17,14 +17,17 @@ function overlapArea(a, b) {
 
 const cases = [];
 for (const [id, def] of Object.entries(G.LAYOUTS)) {
-  cases.push(Object.assign({ layout: id }, def.defaults));
+  cases.push(Object.assign({ layout: id }, def.defaults, { island: false }));
   if (def.island) {
     const base = Object.assign({ layout: id }, def.defaults);
     cases.push(Object.assign(base, G.fitIsland(base), { cookRun: 'island', cookPos: 0.5 }));
   }
-  cases.push(Object.assign({ layout: id }, def.defaults, { pantryCount: 2, dwSide: 'left', roomW: 3000 }));
+  cases.push(Object.assign({ layout: id }, def.defaults, { pantryCount: 2, dwSide: 'left', roomW: 3000, island: false }));
   // every wall gets a door, a threshold or a window, some of them where cabinets would be
-  cases.push(Object.assign({ layout: id }, def.defaults, { openEnds: false, openings: [
+  // tall walls with a niche, tops to the ceiling, handleless, oven towers
+  cases.push(Object.assign({ layout: id }, def.defaults, { island: false, styleLeft: 'tall', styleRight: 'tall', styleBack: 'base',
+    tallNiche: 1200, alignTops: true, handles: 'none', ovenTowers: 2 }));
+  cases.push(Object.assign({ layout: id }, def.defaults, { openEnds: false, island: false, openings: [
     { type: 'door', wall: 'back', from: 'start', offset: 700, width: 800 },
     { type: 'threshold', wall: 'right', from: 'start', offset: 200, width: 1200, height: 2200, beamWidth: 250 },
     { type: 'window', wall: 'left', from: 'end', offset: 1000, width: 900, sill: 1050 },
@@ -105,7 +108,7 @@ for (const [si, site] of sites.entries()) {
   for (const layout of Object.keys(G.LAYOUTS)) {
     for (const island of [false, true]) {
       if (island && !G.LAYOUTS[layout].island) continue;
-      let p = Object.assign({}, G.DEFAULTS, G.layoutDefaults(layout, site), JSON.parse(JSON.stringify(site)), { layout, siteFixed: true });
+      let p = Object.assign({}, G.DEFAULTS, G.layoutDefaults(layout, site), JSON.parse(JSON.stringify(site)), { layout, siteFixed: true, island: false });
       if (island) {
         const fit = G.fitIsland(p, { fixedRoom: true });
         if (fit.roomW || fit.roomD) fail(`site ${si} ${layout}: fitIsland resized the room`);

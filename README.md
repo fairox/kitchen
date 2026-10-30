@@ -2,7 +2,7 @@
 
 A parametric kitchen configurator that runs in the browser and builds the result in **Archicad** as native elements through the [Tapir](https://github.com/ENZYME-APD/tapir-archicad-automation) add-on.
 
-It covers the standard layouts from the reference sheets: **one-wall, galley, L-shaped, U-shaped, G-shaped and peninsula**, each with an optional **island** where it fits (one-wall, L, U). You can change the parameters live in a 3D view and a dimensioned plan. Each change re-checks the work triangle, aisles, landing space and door swing.
+It covers the standard layouts from the reference sheets: **one-wall, galley, L-shaped, U-shaped, G-shaped, peninsula and four-wall**, each with an optional **island** where it fits (one-wall, L, U). You can change the parameters live in a 3D view and a dimensioned plan. Each change re-checks the work triangle, aisles, landing space and door swing.
 
 ![layouts](https://img.shields.io/badge/layouts-6_%2B_island-e8742c) ![deps](https://img.shields.io/badge/build_step-none-5b5d3f)
 
@@ -40,7 +40,8 @@ To build in Archicad, open a project in Archicad with Tapir installed, then clic
 
 | Group | Parameters |
 |---|---|
-| Layout | one-wall · galley · L · U · G · peninsula, island toggle |
+| Layout | one-wall · galley · L · U · G · peninsula · four-wall, island toggle, prep sink |
+| Walls | per wall run: base + wall units, tall to ceiling, or base only; open niche in tall walls |
 | Room | width, depth, ceiling height, wall thickness, open ends (galley) |
 | Openings | any number of **doors**, **windows** and **thresholds**, each placed by wall, reference corner and exact offset (see below) |
 | Runs | left / right leg length, peninsula length and position, island length / offset, aisle to island, seating overhang, stool spacing |
@@ -50,6 +51,37 @@ To build in Archicad, open a project in Archicad with Tapir installed, then clic
 | Finish | fronts, worktop, walls and floor colours, plus presets |
 
 The parameters are stored in the URL, so **Copy link** shares the exact design.
+
+### Using every wall: the four-wall layout and wall styles
+
+The **Four-wall** layout puts cabinet runs on all four walls. The legs run the full depth and the front run owns both front corners. Doors and thresholds in any wall cut the runs where needed. The default follows a 4.9 × 6.25 m plan:
+- **Back:** sink under the window with a dishwasher.
+- **Left:** range and hood, then the fridge with a pantry.
+- **Right:** an oven tower.
+- **Front:** the entry door and a wide opening.
+- **Island:** a prep sink and seating with 1.1 m aisles all round.
+
+Each wall run has a **style** (*Walls* section):
+- **Base + wall:** the standard run.
+- **Tall to ceiling:** a wall of full-height units, like the photo references. Stretches under a window keep base units and a worktop, and *Open niche* adds a worktop niche with a stone back, open shelves and a bridge unit above.
+- **Base only:** no wall units.
+
+Further options:
+- **Oven towers:** tall units with a built-in oven at eye level, placed on a chosen wall.
+- **Up to the ceiling:** aligns the tops of tall and wall units.
+- **Handleless** fronts.
+- **Prep sink** on the island. The work triangle uses whichever sink makes it shorter.
+- **Finishes:** separate colours and wood grain for base, wall and tall fronts. Presets *Oak & cashmere* and *Mocha & stone* follow the reference photos.
+
+### Activate from Archicad
+
+1. In Archicad, select the kitchen's **Zone** (optional).
+2. Run `archicad/launch_configurator.py`: double-click **Open from Archicad** (`.bat` / `.command`), or run it from your Python setup / Tapir's script palette.
+3. The script starts the configurator server if it is not already running and reads the selected zone through Tapir. It then opens the browser with that room as the **fixed site**: width, depth and height from the zone, placed at the zone's position and story.
+4. The zone's walls already exist, so **Include room walls** starts unticked. Add the doors, windows and thresholds in *Openings*; the checks warn while the room has no entry.
+5. **Send to Archicad** builds the kitchen at the zone's position.
+
+The zone's bounding box is used, so draw the zone as an axis-aligned rectangle. Without Archicad or a selected zone, the script just opens the configurator.
 
 ### Fixed room: the site comes first
 

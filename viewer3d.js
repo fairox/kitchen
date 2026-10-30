@@ -80,6 +80,46 @@
       return t;
     })();
 
+    // vertical-grain veneer, tinted by the front colour (one 600 x 2400 mm tile)
+    const woodTex = (() => {
+      const c = document.createElement('canvas');
+      c.width = 256; c.height = 1024;
+      const g = c.getContext('2d');
+      g.fillStyle = '#fff'; g.fillRect(0, 0, 256, 1024);
+      let seed = 11;
+      const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+      for (let i = 0; i < 140; i++) {
+        const x = rnd() * 256, w = 0.6 + rnd() * 2.2, a = 0.04 + rnd() * 0.12;
+        g.strokeStyle = `rgba(70,45,25,${a})`; g.lineWidth = w;
+        g.beginPath(); g.moveTo(x, 0);
+        for (let y = 0; y <= 1024; y += 64) g.lineTo(x + Math.sin(y / 180 + i) * 3, y);
+        g.stroke();
+      }
+      const t = new THREE.CanvasTexture(c);
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.encoding = THREE.sRGBEncoding;
+      return t;
+    })();
+    // light veined stone for niche backs
+    const stoneTex = (() => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 512;
+      const g = c.getContext('2d');
+      g.fillStyle = '#f2efe9'; g.fillRect(0, 0, 512, 512);
+      let seed = 5;
+      const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+      for (let i = 0; i < 40; i++) {
+        g.strokeStyle = `rgba(110,100,90,${0.05 + rnd() * 0.2})`; g.lineWidth = 0.5 + rnd() * 2;
+        g.beginPath(); let x = rnd() * 512, y = rnd() * 512; g.moveTo(x, y);
+        for (let k = 0; k < 8; k++) { x += (rnd() - 0.4) * 120; y += (rnd() - 0.5) * 80; g.lineTo(x, y); }
+        g.stroke();
+      }
+      const t = new THREE.CanvasTexture(c);
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.encoding = THREE.sRGBEncoding;
+      return t;
+    })();
+
     let framed = null;
     let cutaway = true;
     let wallMeshes = [];
@@ -137,6 +177,14 @@
       const wood = mat('frame', '#efece6', { roughness: 0.6 });
       const pane = mat('pane', '#bcd6e8', { transparent: true, opacity: 0.3, roughness: 0.05, metalness: 0.1 });
       const finishes = { front, steel: steelDoor, oven };
+      // base / wall / tall fronts can each have their own colour and wood grain
+      const groupMat = {
+        base: mat('front-base', p.frontColor, { roughness: p.woodBase ? 0.7 : 0.5, map: p.woodBase ? woodTex : null }),
+        wall: mat('front-wall', p.wallFrontColor || p.frontColor, { roughness: p.woodWall ? 0.7 : 0.5, map: p.woodWall ? woodTex : null }),
+        tall: mat('front-tall', p.tallFrontColor || p.frontColor, { roughness: p.woodTall ? 0.7 : 0.5, map: p.woodTall ? woodTex : null }),
+      };
+      for (const k of ['base', 'wall', 'tall']) { groupMat[k].map = p['wood' + k[0].toUpperCase() + k.slice(1)] ? woodTex : null; groupMat[k].needsUpdate = true; }
+      const stone = mat('stone', '#ffffff', { roughness: 0.4, map: stoneTex });
 
       // floor
       const fw = p.roomW + 2 * p.wallT, fd = p.roomD + 2 * p.wallT;
@@ -156,11 +204,13 @@
           case 'pantry': addBox(b, p.fronts ? carcass : front); if (!p.fronts) addHandle(b, b.H * 0.45, true); break;
           case 'fridge': addBox(b, steel); if (!p.fronts) addHandle(b, b.H * 0.55, true); break;
           case 'wallCab': addBox(b, p.fronts ? carcass : front); if (!p.fronts) addHandle(b, 60, false); break;
-          case 'front': addBox(b, finishes[b.finish] || front); break;
+          case 'front': addBox(b, b.finish === 'front' || !b.finish ? groupMat[b.group] || front : finishes[b.finish] || front); break;
+          case 'shelf': addBox(b, groupMat.tall); break;
           case 'handle': addBox(b, handle, { edges: false }); break;
           case 'plinth': addBox(b, plinth, { shadow: false, edges: false }); break;
           case 'counter': addBox(b, top); break;
-          case 'panel': case 'wallFiller': addBox(b, front); break;
+          case 'panel': addBox(b, b.finish === 'stone' ? stone : front); break;
+          case 'wallFiller': addBox(b, groupMat.wall); break;
           case 'sinkBowl': addBox(b, bowl, { shadow: false }); break;
           case 'tap': addBox(b, steel, { edges: false }); break;
           case 'cooktop': addBox(b, glass, { shadow: false }); break;
