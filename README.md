@@ -139,6 +139,8 @@ python3 archicad/build_kitchen.py model.json
 python3 archicad/build_kitchen.py model.json --dry-run payloads.json
 ```
 
+Run `python3 archicad/check_tapir.py` first to confirm that Archicad is running, Tapir is active and every command the build uses is available. It changes nothing in the project.
+
 In order: generate a model without a browser, place one of each element type, verify it and delete it, build the model, and write the Tapir payloads without connecting.
 
 | Model element | Archicad element | Tapir command |

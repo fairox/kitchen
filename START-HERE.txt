@@ -18,6 +18,7 @@ KITCHEN CONFIGURATOR - run it on your computer
    - Install the Tapir add-on for your Archicad version:
      https://github.com/ENZYME-APD/tapir-archicad-automation/releases
    - Open a project in Archicad.
+   - Check the connection (optional):  python archicad/check_tapir.py
    - In the configurator click "Send to Archicad". The dot turns green when
      Archicad is found. Run "Test placement" once, then "Build".
    - "Replace previous build" removes the last kitchen before building again.
