@@ -524,12 +524,25 @@ def ensure_layers(ac: Archicad, names: list[str], log) -> dict:
 
 
 def set_layers(ac: Archicad, pairs: list[tuple[str, int]], log):
-    items = [{"elementId": {"guid": g}, "details": {"layerIndex": idx}} for g, idx in pairs if g]
-    for part in chunks(items, BATCH):
+    set_details(ac, [(g, idx, None) for g, idx in pairs], log)
+
+
+def set_details(ac: Archicad, items: list, log):
+    """items: (guid, layerIndex or None, element ID or None)."""
+    data = []
+    for g, idx, eid in items:
+        d = {}
+        if idx is not None:
+            d["layerIndex"] = idx
+        if eid:
+            d["id"] = eid
+        if g and d:
+            data.append({"elementId": {"guid": g}, "details": d})
+    for part in chunks(data, BATCH):
         try:
             ac.tapir("SetDetailsOfElements", {"elementsWithDetails": part})
         except ArchicadError as e:
-            log(f"  ! layer assignment failed: {e}")
+            log(f"  ! layer / element ID assignment failed: {e}")
             return
 
 
@@ -606,11 +619,18 @@ def create_beams(ac: Archicad, model: dict, z_base: float, floor_index: int, log
     return guids_of(res)[0]
 
 
-def create_morphs(ac: Archicad, boxes: list, z_base: float, log) -> list:
+def create_morphs(ac: Archicad, boxes: list, z_base: float, log, surfaces: dict | None = None) -> list:
     guids = []
     conv = probe_morph_convention(ac, z_base, log) if any(not axis_aligned(b) for b in boxes) else "columns"
+
+    def payload(b):
+        d = morph_payload(b, z_base, conv)
+        sid = (surfaces or {}).get(b.get("surface"))
+        if sid:
+            d["surfaceId"] = sid
+        return d
     for part in chunks(boxes, BATCH):
-        res = ac.tapir("CreateMorphs", {"morphsData": [morph_payload(b, z_base, conv) for b in part]})
+        res = ac.tapir("CreateMorphs", {"morphsData": [payload(b) for b in part]})
         g, errors = guids_of(res)
         for err in errors[:5]:
             log(f"  ! morph: {err}")
@@ -655,6 +675,73 @@ def create_openings_tracked(ac: Archicad, model: dict, segments: list, seg_guids
     return out
 
 
+# ----------------------------------------------------------------------------- surfaces (colours)
+
+STEEL, HANDLE = "#c4c7ca", "#77756f"
+
+
+def material_of(b: dict, p: dict) -> tuple:
+    """(surface name, #rrggbb, Archicad material type) of a box, matching the web app's 3D view."""
+    base = p.get("frontColor", "#e8e2d6")
+    group = {"base": base, "wall": p.get("wallFrontColor", base), "tall": p.get("tallFrontColor", base)}
+    groupname = {"base": "Base fronts", "wall": "Wall unit fronts", "tall": "Tall unit fronts"}
+    k = b["kind"]
+    if k == "front":
+        if b.get("finish") == "steel":
+            return "Appliance steel", "#d2d5d8", "Metal"
+        if b.get("finish") == "oven":
+            return "Oven glass", "#202122", "Plastic"
+        g = b.get("group") or "base"
+        return groupname[g], group[g], "Matte"
+    by_kind = {
+        "base": ("Base carcass", group["base"]), "corner": ("Base carcass", group["base"]), "sinkBase": ("Base carcass", group["base"]),
+        "cookBase": ("Base carcass", group["base"]), "dishwasher": ("Base carcass", group["base"]), "filler": ("Base carcass", group["base"]),
+        "wallCab": ("Wall unit carcass", group["wall"]), "wallFiller": ("Wall unit fronts", group["wall"]),
+        "pantry": ("Tall unit carcass", group["tall"]), "shelf": ("Tall unit fronts", group["tall"]),
+        "counter": ("Worktop", p.get("counterColor", "#3d3b38")), "plinth": ("Plinth", "#3f3e3b"),
+        "panel": ("Stone", "#ece8e0") if b.get("finish") == "stone" else ("Base fronts", group["base"]),
+        "stool": ("Stools", "#8a6a4c"), "cooktop": ("Cooktop glass", "#141414"),
+    }
+    if k in by_kind:
+        return by_kind[k] + ("Matte",)
+    if k in ("fridge", "hood", "tap", "sinkBowl"):
+        return "Steel", STEEL, "Metal"
+    if k == "handle":
+        return "Handles", HANDLE, "Metal"
+    return "Base fronts", group["base"], "Matte"
+
+
+def surface_name(name, hexcolor):
+    # the colour is part of the name, so a later build in another finish never recolours an earlier one
+    return f"KITCHEN {name} {hexcolor}"
+
+
+def ensure_surfaces(ac, wanted: dict, log) -> dict:
+    """wanted: {surface name: (#rrggbb, type)} -> {name: AttributeId}; creates only the missing ones."""
+    def existing():
+        return {a["name"]: a["attributeId"] for a in ac.tapir("GetAttributesByType", {"attributeType": "Surface"}).get("attributes", [])}
+    have = existing()
+    missing = [n for n in wanted if n not in have]
+    if missing:
+        if not ac.available("CreateSurfaces"):
+            log("  CreateSurfaces not available in this Tapir version - morphs keep the default surface")
+            return {}
+        data = []
+        for n in missing:
+            hexcolor, typ = wanted[n]
+            rgb = [int(hexcolor[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            data.append({"name": n, "materialType": typ, "surfaceColor": {"red": rgb[0], "green": rgb[1], "blue": rgb[2]},
+                         "ambientReflection": 60, "diffuseReflection": 80, "specularReflection": 30 if typ == "Metal" else 10})
+        try:
+            ac.tapir("CreateSurfaces", {"surfaceDataArray": data, "overwriteExisting": False})
+        except ArchicadError as e:
+            log(f"  ! surfaces could not be created ({e}) - morphs keep the default surface")
+            return {}
+        log(f"  created {len(missing)} surfaces")
+        have = existing()
+    return {n: have[n] for n in wanted if n in have}
+
+
 # ----------------------------------------------------------------------------- build file
 
 BUILD_FORMAT = "kitchen-configurator-build"
@@ -694,7 +781,9 @@ def validate_model(m) -> dict:
         c = {k: _num(b.get(k), f"{w}.{k}") for k in ("cx", "cy", "z")}
         c.update({k: _num(b.get(k), f"{w}.{k}", 0.01, 1e5) for k in ("L", "D", "H")})
         c.update({k: _num(b.get(k), f"{w}.{k}", -1.0001, 1.0001) for k in ("ux", "uy", "nx", "ny")})
-        c.update(kind=b["kind"], cat=b["cat"], id=_str(b.get("id"), w + ".id", 60) or f"box-{i}", label=_str(b.get("label"), w + ".label"))
+        c.update(kind=b["kind"], cat=b["cat"], id=_str(b.get("id"), w + ".id", 60) or f"box-{i}", label=_str(b.get("label"), w + ".label"),
+                 group=b.get("group") if b.get("group") in ("base", "wall", "tall") else None,
+                 finish=b.get("finish") if b.get("finish") in ("front", "steel", "oven", "stone") else None)
         boxes.append(c)
     walls = []
     for i, wl in enumerate(m.get("walls") or []):
@@ -727,6 +816,9 @@ def validate_model(m) -> dict:
         if k in p:
             params[k] = _num(p[k], f"params.{k}")
     params["acWalls"] = p.get("acWalls") is not False
+    for k in ("frontColor", "wallFrontColor", "tallFrontColor", "counterColor", "wallColor", "floorColor"):
+        if isinstance(p.get(k), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", p[k]):
+            params[k] = p[k].lower()
     stats = m.get("stats") if isinstance(m.get("stats"), dict) else {}
     checks = [c for c in (m.get("checks") or []) if isinstance(c, dict) and c.get("level") in ("error", "warn")][:30]
     return {"params": params, "boxes": boxes, "walls": walls, "openings": openings, "beams": beams, "stats": stats,
@@ -783,7 +875,7 @@ def read_back(ac, guids):
     ids = [{"elementId": {"guid": g}} for g in guids]
     det, bbs = [], []
     for part in chunks(ids, BATCH):
-        det += ac.tapir("GetDetailsOfElements", {"elements": part, "fields": ["type", "floorIndex", "layerIndex"]}).get("detailsOfElements", [])
+        det += ac.tapir("GetDetailsOfElements", {"elements": part, "fields": ["type", "id", "floorIndex", "layerIndex"]}).get("detailsOfElements", [])
         bbs += ac.tapir("Get3DBoundingBoxes", {"elements": part}).get("boundingBoxes3D", [])
     return det, bbs
 
@@ -803,6 +895,8 @@ def verify(ac, elements) -> dict:
             why.append(f"story {d.get('floorIndex')} != {exp['floorIndex']}")
         if exp.get("layerIndex") is not None and int(d.get("layerIndex", -1)) != exp["layerIndex"]:
             why.append(f"layer {d.get('layerIndex')} != {exp['layerIndex']}")
+        if e.get("elementId") and d.get("id") is not None and d.get("id") != e["elementId"]:
+            why.append(f"element ID {d.get('id')!r} != {e['elementId']!r}")
         bb = (b or {}).get("boundingBox3D") if isinstance(b, dict) else None
         if exp.get("bbox3"):
             if not bb:
@@ -853,6 +947,12 @@ def delete_owned(ac, guids):
         res = ac.tapir("DeleteElements", {"elements": [{"elementId": {"guid": g}} for g in part]}).get("executionResults", [])
         out += [{"guid": g, "ok": bool((r or {}).get("success")), "error": ((r or {}).get("error") or {}).get("message")} for g, r in zip(part, res)]
     return out
+
+
+def project_runs(ident):
+    """Runs of this identified project that still have elements in it (newest first)."""
+    return [b for b in list_builds() if b["status"] in ("verified", "created-with-problems", "failed", "started")
+            and b.get("project") and same_project(b["project"], ident)[0] and b["count"]]
 
 
 def removal_summary(res, refused):
@@ -963,18 +1063,29 @@ def build(model: dict, options: dict | None = None, log=print, port: int | None 
                     for e in j["elements"]:  # a beam hung from the ceiling may belong to the story above
                         if e["kind"] == "beam":
                             e["expect"]["floorIndex"] = None
+        # one surface per configurator colour
+        wanted = {}
+        for b in model["boxes"]:
+            name, hexcolor, typ = material_of(b, p)
+            b["surface"] = surface_name(name, hexcolor)
+            wanted[b["surface"]] = (hexcolor, typ)
+        surfaces = ensure_surfaces(ac, wanted, log)
+        j["surfaces"] = sorted(surfaces)
         log(f"Creating {len(model['boxes'])} morph boxes...")
-        mg = create_morphs(ac, model["boxes"], z_base, log)
+        mg = create_morphs(ac, model["boxes"], z_base, log, surfaces)
         record(zip(mg, model["boxes"]), "box", "Morph", None, lambda b: expected_aabb(b, z_base))
         for e, b in zip([e for e in j["elements"] if e["kind"] == "box"], [b for b, g in zip(model["boxes"], mg) if g]):
             e["layer"] = LAYER_PREFIX + b["cat"]
         step(f"{len(j['elements'])} elements created, {len(j['failures'])} failures")
 
-        relayer = [e for e in j["elements"] if e["layer"]]
-        set_layers(ac, [(e["guid"], layers[e["layer"]]) for e in relayer], log)
-        for e in relayer:
-            e["expect"]["layerIndex"] = layers[e["layer"]]
-        step(f"Layers set on {len(relayer)} elements")
+        # every element gets its own Element ID, naming the run that built it: KC-<run>-<key>
+        for e in j["elements"]:
+            e["elementId"] = f"KC-{run_id[-6:]}-" + re.sub(r"[^A-Za-z0-9_-]+", "-", str(e["key"])).strip("-")
+            if e["layer"]:
+                e["expect"]["layerIndex"] = layers[e["layer"]]
+        set_details(ac, [(e["guid"], layers[e["layer"]] if e["layer"] else None, e["elementId"]) for e in j["elements"]], log)
+        save_journal(j)
+        step(f"Layers and element IDs set on {len(j['elements'])} elements ({len(surfaces)} surfaces)")
 
         ver = verify(ac, j["elements"])
         j["verification"] = ver

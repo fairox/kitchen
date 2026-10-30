@@ -343,9 +343,12 @@ class KitchenWindow:
         prev = B.previous_build(pj) if pj.get("token") else None
         state = "" if not prev or prev["status"] == "verified" else ", built with problems"
         opts = ([f"Replace previous build {prev['runId']} ({prev['count']} elements, {prev.get('layout') or 'kitchen'}{state})"] if prev else []) + ["Append a new build"]
+        # older runs still in this project (e.g. a faulty build kept by Append) can be removed on their own
+        others = [b for b in B.project_runs(pj) if not prev or b["runId"] != prev["runId"]] if pj.get("token") else []
+        opts += [f"Remove run {b['runId']} only ({b['count']} elements, {b['status'].replace('-', ' ')}) - no new build" for b in others]
         self.mode_box.configure(values=opts)
         want = (self.settings or {}).get("mode", "replace")
-        self.mode.set(opts[0] if (prev and (want == "replace" or prev["status"] != "verified")) else opts[-1])
+        self.mode.set(opts[0] if (prev and (want == "replace" or prev["status"] != "verified")) else "Append a new build")
 
     def from_zone(self):
         if not self.status_info:
@@ -461,8 +464,22 @@ class KitchenWindow:
         self.set_status(f"Test placement {'passed' if r['ok'] else 'FAILED'}: {r['tested']} sample elements checked and removed."
                         + (" " + " | ".join(bad[:3]) if bad else ""), "ok" if r["ok"] else "error")
 
+    def remove_run(self, run_id):
+        from tkinter import messagebox
+        if not messagebox.askokcancel(SCRIPT_NAME, f"Remove the elements of run {run_id} that are still exactly as it built them? "
+                                      "Anything edited since is kept.", parent=self.root):
+            return
+        lines = []
+        with self.busy(f"Removing run {run_id}…"):
+            r = B.remove_run(run_id, self.port, log=lines.append)
+        self.status_info = None
+        self.connect()
+        self.set_status(f"Run {run_id}: {r['summary']}.", "ok")
+
     def build(self):
         from tkinter import messagebox
+        if self.mode.get().startswith("Remove run ") and self.status_info:
+            return self.remove_run(self.mode.get().split()[2])
         if not self.model or not self.status_info:
             return
         opts = self._options()

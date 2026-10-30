@@ -88,7 +88,10 @@ The Archicad side works like the Parkform builder. The **browser never connects 
    - **Open web app:** starts the local app. If a Zone is selected, the app opens with it as the fixed room.
    - **Test placement:** places one element of each kind, verifies it and deletes it.
    - **Build in Archicad:** builds after a confirmation.
-4. Every element is **verified by read-back**: type, story, layer and 3D bounding box.
+4. Every element is **verified by read-back**: type, Element ID, story, layer and 3D bounding box.
+   - **Element IDs:** each element gets a unique Element ID `KC-<run>-<key>` (e.g. `KC-2573f8-front-75`, `KC-2573f8-D1`), so you can always see which build an element belongs to.
+   - **Surfaces:** morphs get Archicad surfaces in the configurator's colours, one per colour, named `KITCHEN <material> #rrggbb` (base, wall and tall fronts and carcasses, worktop, plinth, steel, handles, glass, stone). The colour is in the name, so a later build in another finish never recolours an earlier one. Wood grain becomes its colour only.
+   - **Cleanup:** the Mode list also offers **Remove run … only** for every older build still in this project, for example a build kept by Append.
    - **Replace** runs only after the new build is verified, in the same identified project. It deletes only the previous build's elements that are still exactly as built; anything you moved, edited or put on another layer is kept. A previous run that was *built with problems* can be replaced too, which is how a faulty build is cleaned up.
    - **The project** is identified by a token in an app-owned *Kitchen Configurator* classification system, plus the project path.
    - **Every run is journalled** in `Documents/Kitchen Configurator/journal`. Use `--builds` to list runs and `--remove RUN_ID` to recover.
