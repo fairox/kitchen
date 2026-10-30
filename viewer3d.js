@@ -204,7 +204,8 @@
           const a = o.offset - o.w / 2, b = o.offset + o.w / 2;
           if (a > cur) piece(cur, a, 0, w.h, w.t);
           if (o.sill > 0) piece(a, b, 0, o.sill, w.t);
-          if (o.sill + o.h < w.h) piece(a, b, o.sill + o.h, w.h, w.t);
+          // above a threshold the wall stops: the beam spans the gap (drawn below)
+          if (o.kind !== 'threshold' && o.sill + o.h < w.h) piece(a, b, o.sill + o.h, w.h, w.t);
           const F = 60, FD = Math.min(80, w.t); // frame width and depth
           if (o.kind === 'window') {
             piece(a, a + F, o.sill, o.sill + o.h, FD, 0, wood);
@@ -213,8 +214,13 @@
             piece(a, b, o.sill + o.h - F, o.sill + o.h, FD, 0, wood);
             if (o.w > 900) piece(o.offset - 25, o.offset + 25, o.sill + F, o.sill + o.h - F, FD * 0.8, 0, wood);
             piece(a + F, b - F, o.sill + F, o.sill + o.h - F, 10, 0, pane);
+          } else if (o.kind === 'threshold') {
+            // flush jamb linings and a floor threshold strip; no leaf
+            piece(a, a + 12, 0, o.h, w.t + 4, 0, wood);
+            piece(b - 12, b, 0, o.h, w.t + 4, 0, wood);
+            piece(a, b, 0, 6, w.t, 0, wood);
           } else {
-            // casing on both faces, then the leaf standing open at 90° into the room
+            // casing on both faces, then the leaf standing open at 90°, hinged and swinging as specified
             for (const side of [-1, 1]) {
               const off = side * (w.t / 2 + 8);
               piece(a - 60, a, 0, o.h + 60, 16, off, wood);
@@ -223,11 +229,14 @@
             }
             const mid = at(o.offset, 0);
             const room = ((p.roomW / 2 - mid[0]) * nx + (p.roomD / 2 - mid[1]) * ny) > 0 ? 1 : -1;
-            const leafU = [nx * room, ny * room];
-            const hinge = at(a + 20, room * w.t / 2);
+            const side = o.swing === 'out' ? -room : room;
+            const leafU = [nx * side, ny * side];
+            const hingeEnd = o.hinge === 'end';
+            const hinge = at(hingeEnd ? b - 20 : a + 20, side * w.t / 2);
             const leafW = o.w - 40;
-            const leaf = { cx: hinge[0] + leafU[0] * leafW / 2, cy: hinge[1] + leafU[1] * leafW / 2, z: 5, L: leafW, D: 40, H: o.h - 10, ux: leafU[0], uy: leafU[1], id: o.id };
-            const kh = { cx: leaf.cx + leafU[0] * (leafW / 2 - 70) + ux * 30, cy: leaf.cy + leafU[1] * (leafW / 2 - 70) + uy * 30, z: 1000, L: 120, D: 20, H: 20, ux: leafU[0], uy: leafU[1] };
+            const toward = hingeEnd ? -1 : 1; // from the hinge towards the closing jamb, along the wall
+            const leaf = { cx: hinge[0] + leafU[0] * leafW / 2 + ux * toward * 20, cy: hinge[1] + leafU[1] * leafW / 2 + uy * toward * 20, z: 5, L: leafW, D: 40, H: o.h - 10, ux: leafU[0], uy: leafU[1], id: o.id };
+            const kh = { cx: leaf.cx + leafU[0] * (leafW / 2 - 70) + ux * toward * 30, cy: leaf.cy + leafU[1] * (leafW / 2 - 70) + uy * toward * 30, z: 1000, L: 120, D: 20, H: 20, ux: leafU[0], uy: leafU[1] };
             for (const m of [addBox(leaf, wood), addBox(kh, handle, { edges: false })]) { // hidden with its wall
               m.userData.wall = w.id;
               wallMeshes.push(m);
@@ -236,6 +245,16 @@
           cur = b;
         }
         if (cur < len) piece(cur, len, 0, w.h, w.t);
+      }
+
+      // beams over thresholds, hidden with their wall in cutaway
+      const beamM = mat('beam', '#d8d4cc', { roughness: 0.9 });
+      for (const bm of model.beams || []) {
+        const L = Math.hypot(bm.x2 - bm.x1, bm.y2 - bm.y1);
+        const ux = (bm.x2 - bm.x1) / L, uy = (bm.y2 - bm.y1) / L;
+        const m = addBox({ cx: (bm.x1 + bm.x2) / 2, cy: (bm.y1 + bm.y2) / 2, z: bm.z, L, D: bm.w, H: bm.d, ux, uy, id: bm.id }, beamM);
+        m.userData.wall = bm.wall;
+        wallMeshes.push(m);
       }
 
       // lights & first framing

@@ -6,8 +6,11 @@ Input is the model JSON produced by generator.js (the web app's
 "Export > Model JSON", or `node tools/export.js params.json`). Everything is
 created as native Archicad elements:
 
-  room walls      -> Wall        (TapirCommand.CreateWalls)
-  door / window   -> Door/Window (TapirCommand.CreateDoors / CreateWindows)
+  room walls      -> Wall        (TapirCommand.CreateWalls), split at thresholds
+  door / window   -> Door/Window (TapirCommand.CreateDoors / CreateWindows), in the wall
+                                 segment that contains it, at its exact centre offset
+  threshold beam  -> Beam        (TapirCommand.CreateBeams, hung from the ceiling;
+                                 falls back to a header wall when CreateBeams is missing)
   every box       -> Morph box   (TapirCommand.CreateMorphs, oriented with x/y/z axes)
 
 Elements are put on layers named "KITCHEN - <category>", created when missing.
@@ -26,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -40,7 +44,7 @@ LAYER_PREFIX = "KITCHEN - "
 
 REQUIRED = ["GetAddOnVersion", "CreateMorphs", "SetDetailsOfElements", "DeleteElements",
             "GetAttributesByType", "CreateLayers"]
-OPTIONAL = ["CreateWalls", "CreateDoors", "CreateWindows", "GetStories", "Get3DBoundingBoxes"]
+OPTIONAL = ["CreateWalls", "CreateDoors", "CreateWindows", "CreateBeams", "GetStories", "Get3DBoundingBoxes"]
 
 
 class ArchicadError(RuntimeError):
@@ -140,6 +144,36 @@ def morph_payload(b: dict, z_base: float) -> dict:
         "yAxis": {"x": vx, "y": vy, "z": 0.0},
         "zAxis": {"x": 0.0, "y": 0.0, "z": 1.0},
     }
+
+
+def wall_segments(model: dict) -> list:
+    """Every wall split at its thresholds -> [{wall, d0, x1, y1, x2, y2, t, h}] (mm)."""
+    out = []
+    for w in model.get("walls", []):
+        length = math.hypot(w["x2"] - w["x1"], w["y2"] - w["y1"])
+        ux, uy = (w["x2"] - w["x1"]) / length, (w["y2"] - w["y1"]) / length
+        for d0, d1 in w.get("segments") or [[0, length]]:
+            out.append({"wall": w["id"], "d0": d0, "d1": d1, "t": w["t"], "h": w["h"],
+                        "x1": w["x1"] + ux * d0, "y1": w["y1"] + uy * d0,
+                        "x2": w["x1"] + ux * d1, "y2": w["y1"] + uy * d1})
+    return out
+
+
+def segment_for(opening: dict, segments: list):
+    """The wall segment that hosts an opening, and the opening's centre offset within it."""
+    for i, sg in enumerate(segments):
+        if sg["wall"] == opening["wall"] and sg["d0"] - 1e-6 <= opening["offset"] - opening["w"] / 2 \
+                and opening["offset"] + opening["w"] / 2 <= sg["d1"] + 1e-6:
+            return i, opening["offset"] - sg["d0"]
+    return None, None
+
+
+def beam_payload(b: dict, z_base: float) -> dict:
+    # TopCenter anchor: the reference line runs along the top of the beam, at the ceiling
+    return {"begCoordinate": {"x": b["x1"] * MM, "y": b["y1"] * MM},
+            "endCoordinate": {"x": b["x2"] * MM, "y": b["y2"] * MM},
+            "zCoordinate": z_base + b["top"] * MM, "width": b["w"] * MM, "height": b["d"] * MM,
+            "anchorPoint": "TopCenter", "isWidthAndHeightLinked": False}
 
 
 def wall_payload(w: dict, floor_index: int) -> dict:
@@ -248,21 +282,56 @@ def create_walls(ac: Archicad, walls: list, floor_index: int, log) -> list:
     return guids
 
 
-def create_openings(ac: Archicad, model: dict, wall_guids: dict, log) -> list:
+def create_openings(ac: Archicad, model: dict, segments: list, seg_guids: list, log) -> list:
     created = []
     for kind, cmd, key in (("door", "CreateDoors", "doorsData"), ("window", "CreateWindows", "windowsData")):
-        items = [o for o in model["openings"] if o["kind"] == kind and wall_guids.get(o["wall"])]
+        items = []
+        for o in model["openings"]:
+            if o["kind"] != kind:
+                continue
+            i, offset = segment_for(o, segments)
+            if i is None or not seg_guids[i]:
+                log(f"  ! {o['id']}: no host wall segment — skipped")
+                continue
+            items.append(opening_payload(dict(o, offset=offset), seg_guids[i]))
+            log(f"  {o['id']}: {kind} {o['w']:.0f}×{o['h']:.0f} on {o['wall']} wall, "
+                f"{o['fromStart']:.0f} / {o['fromEnd']:.0f} mm from the corners")
         if not items:
             continue
         if not ac.available(cmd):
             log(f"  {cmd} not available in this Tapir version — skipped {kind}s")
             continue
-        res = ac.tapir(cmd, {key: [opening_payload(o, wall_guids[o["wall"]]) for o in items]})
+        res = ac.tapir(cmd, {key: items})
         guids, errors = guids_of(res)
         for err in errors:
             log(f"  ! {kind}: {err}")
         created += [g for g in guids if g]
     return created
+
+
+def create_beams(ac: Archicad, model: dict, z_base: float, floor_index: int, log) -> list:
+    beams = model.get("beams") or []
+    if not beams:
+        return []
+    if ac.available("CreateBeams"):
+        try:
+            res = ac.tapir("CreateBeams", {"beamsData": [beam_payload(b, z_base) for b in beams]})
+        except ArchicadError as e:
+            log(f"  CreateBeams rejected full payload ({e}); retrying without anchor settings")
+            res = ac.tapir("CreateBeams", {"beamsData": [
+                {k: v for k, v in beam_payload(b, z_base).items() if k not in ("anchorPoint", "isWidthAndHeightLinked")}
+                for b in beams]})
+        guids, errors = guids_of(res)
+        for err in errors:
+            log(f"  ! beam: {err}")
+        for b in beams:
+            log(f"  {b['id']}: beam {b['w']:.0f}×{b['d']:.0f} over {b['opening']}, soffit at {b['z']:.0f} mm")
+        return guids
+    log("  CreateBeams not available — threshold heads built as walls")
+    headers = [dict(wall_payload({"x1": b["x1"], "y1": b["y1"], "x2": b["x2"], "y2": b["y2"], "t": b["w"], "h": b["d"]}, floor_index),
+                    zCoordinate=b["z"] * MM) for b in beams]
+    res = ac.tapir("CreateWalls", {"wallsData": headers})
+    return guids_of(res)[0]
 
 
 def create_morphs(ac: Archicad, boxes: list, z_base: float, log) -> list:
@@ -310,15 +379,17 @@ def build(model: dict, options: dict | None = None, log=print, port: int | None 
 
     if opts["walls"] and model.get("walls"):
         if ac.available("CreateWalls"):
-            log(f"Creating {len(model['walls'])} walls…")
-            wg = create_walls(ac, model["walls"], floor, log)
-            wall_guids = {w["id"]: g for w, g in zip(model["walls"], wg) if g}
+            segments = wall_segments(model)
+            log(f"Creating {len(segments)} wall segments ({len(model['walls'])} walls)…")
+            wg = create_walls(ac, segments, floor, log)
             failed += sum(1 for g in wg if not g)
-            op = create_openings(ac, model, wall_guids, log)
-            created += [g for g in wg if g] + op
+            op = create_openings(ac, model, segments, wg, log)
+            bg = create_beams(ac, model, z_base, floor, log)
+            failed += sum(1 for g in bg if not g)
+            created += [g for g in wg if g] + op + [g for g in bg if g]
             layer = layers.get(LAYER_PREFIX + "Walls")
             if layer is not None:
-                layer_pairs += [(g, layer) for g in wg if g]
+                layer_pairs += [(g, layer) for g in wg + bg if g]
         else:
             log("CreateWalls not available in this Tapir version — walls skipped")
 
@@ -349,7 +420,7 @@ def test_placement(model: dict, log=print, port: int | None = None) -> dict:
     made = []
     try:
         if model.get("walls") and ac.available("CreateWalls"):
-            wg = create_walls(ac, model["walls"][:1], 0, log)
+            wg = create_walls(ac, wall_segments(model)[:1], 0, log)
             made += [g for g in wg if g]
             log(f"  wall: {'ok' if wg and wg[0] else 'FAILED'}")
         samples = {}
@@ -358,6 +429,9 @@ def test_placement(model: dict, log=print, port: int | None = None) -> dict:
             if b["kind"] not in samples or (abs(b["ux"]) < 0.5 and abs(samples[b["kind"]]["ux"]) > 0.5):
                 samples[b["kind"]] = b
         boxes = list(samples.values())
+        if model.get("beams"):
+            bg = create_beams(ac, {"beams": model["beams"][:1]}, z_base, 0, log)
+            made += [g for g in bg if g]
         mg = create_morphs(ac, boxes, z_base, log)
         made += [g for g in mg if g]
         if ac.available("Get3DBoundingBoxes"):
@@ -389,8 +463,11 @@ def dry_run(model: dict, options: dict | None = None) -> dict:
     opts = {"walls": True, "floorIndex": 0}
     opts.update(options or {})
     return {
-        "CreateWalls": {"wallsData": [wall_payload(w, opts["floorIndex"]) for w in model["walls"]]} if opts["walls"] else None,
-        "CreateDoors/Windows": [{"wall": o["wall"], **opening_payload(o, "<wall guid>")} for o in model["openings"]],
+        "CreateWalls": {"wallsData": [wall_payload(w, opts["floorIndex"]) for w in wall_segments(model)]} if opts["walls"] else None,
+        "CreateDoors/Windows": [{"id": o["id"], "kind": o["kind"], "segment": segment_for(o, wall_segments(model))[0],
+                                 **opening_payload(dict(o, offset=segment_for(o, wall_segments(model))[1] or 0), "<segment guid>")}
+                                for o in model["openings"] if o["kind"] in ("door", "window")],
+        "CreateBeams": {"beamsData": [beam_payload(b, 0.0) for b in model.get("beams", [])]},
         "CreateMorphs": {"morphsData": [morph_payload(b, 0.0) for b in model["boxes"]]},
         "layers": sorted({LAYER_PREFIX + b["cat"] for b in model["boxes"]}),
     }

@@ -31,7 +31,8 @@ To build in Archicad, open a project in Archicad with Tapir installed, then clic
 | Group | Parameters |
 |---|---|
 | Layout | one-wall · galley · L · U · G · peninsula, island toggle |
-| Room | width, depth, ceiling height, wall thickness, open ends (galley), door wall / position / width |
+| Room | width, depth, ceiling height, wall thickness, open ends (galley) |
+| Openings | any number of **doors**, **windows** and **thresholds**, each placed by wall, reference corner and exact offset (see below) |
 | Runs | left / right leg length, peninsula length and position, island length / offset, aisle to island, seating overhang, stool spacing |
 | Appliances | run and position for sink, cooktop and fridge; sink / cooktop / fridge widths; dishwasher left or right of the sink; window over sink |
 | Base cabinets | worktop height and thickness, base depth, plinth, max module width, door & drawer fronts on/off |
@@ -39,6 +40,44 @@ To build in Archicad, open a project in Archicad with Tapir installed, then clic
 | Finish | fronts, worktop, walls and floor colours, plus presets |
 
 The parameters are stored in the URL, so **Copy link** shares the exact design.
+
+### Openings: doors, windows, thresholds
+
+Each opening is placed precisely, in millimetres:
+
+| Field | Meaning |
+|---|---|
+| `wall` | `back`, `front`, `left` or `right` |
+| `from` | reference corner, named as seen in plan: **left/right** corner for the back and front walls, **front/back** corner for the side walls |
+| `offset` | distance from that **interior corner** to the **near edge** of the opening |
+| `width`, `height` | clear opening size (for a threshold, `height` is the clear height under the beam) |
+| `sill` | window sill height above the floor |
+| `hinge`, `swing` | door hinge jamb (same corner names) and `in`/`out` |
+| `beamWidth`, `bearing` | threshold beam width (0 = wall thickness) and how far it bears into the wall each side |
+
+- A **threshold** is a floor-to-beam passage with no leaf. The wall stops at both jambs and a beam spans the gap from the ceiling down to the clear height. Its depth is ceiling height minus clear height.
+- Switching the reference corner keeps the opening where it is and converts the offset.
+- The plan shows a **corner → edge → edge → corner dimension chain** outside every wall with openings, plus a tag with each opening's size. Thresholds show the beam dashed overhead.
+- Cabinets respect openings:
+  - No base units, worktop or tall units in front of a door or threshold (plus a 50 mm casing).
+  - No base units in front of a window whose sill is below the worktop.
+  - No tall units in front of any window.
+  - No wall units across any opening that reaches their band.
+  - Appliances move to the nearest stretch of wall that is free. If the fridge's wall has no free stretch wide enough, the fridge moves to another wall run.
+- The automatic **window over the sink** narrows itself to stay clear of tall units and other openings.
+- Checks:
+  - Errors: overlapping openings, a tall unit in front of a window, and door swings or passages blocked by cabinets (including perpendicular runs).
+  - Warnings: piers under 100 mm, clear heights under 2000 mm, and window sills below the worktop.
+
+Example (also accepted in the URL hash and by `tools/export.js`):
+
+```json
+{ "layout": "u-shape", "openings": [
+  { "type": "door", "wall": "front", "from": "start", "offset": 1550, "width": 900, "height": 2100, "hinge": "end", "swing": "in" },
+  { "type": "threshold", "wall": "right", "from": "start", "offset": 200, "width": 1200, "height": 2200, "beamWidth": 250 },
+  { "type": "window", "wall": "left", "from": "end", "offset": 1100, "width": 1200, "height": 1200, "sill": 1050 }
+] }
+```
 
 ### How runs are filled
 
@@ -82,8 +121,9 @@ In order: generate a model without a browser, place one of each element type, ve
 
 | Model element | Archicad element | Tapir command |
 |---|---|---|
-| Room walls | Wall (Basic, centre reference line) | `CreateWalls` |
-| Door, window over sink | Door / Window in the host wall | `CreateDoors`, `CreateWindows` |
+| Room walls, split at thresholds | Wall (Basic, centre reference line) | `CreateWalls` |
+| Doors, windows | Door / Window in the wall segment that contains it, at its exact centre offset | `CreateDoors`, `CreateWindows` |
+| Threshold beams | Beam, `TopCenter` anchor at ceiling level, exact width × depth (falls back to a header wall without `CreateBeams`) | `CreateBeams` |
 | Cabinets, fronts, handles, plinths, worktops, appliances, tap, hood, stools | Morph box, oriented with x/y/z axes | `CreateMorphs` |
 | Layers `KITCHEN - Cabinets / Worktops / Appliances / Furniture / Walls` | Layer attributes | `CreateLayers` + `SetDetailsOfElements` |
 

@@ -16,6 +16,7 @@
     : Object.assign({}, G.DEFAULTS, G.LAYOUTS[G.DEFAULTS.layout].defaults);
   let model = null;
   let highlight = null;
+  let highlightOpening = null;
 
   function readHash() {
     try {
@@ -40,11 +41,9 @@
         { key: 'wallH', label: 'Ceiling height', min: 2300, max: 3600, step: 50, unit: 'mm' },
         { key: 'wallT', label: 'Wall thickness', min: 100, max: 400, step: 10, unit: 'mm' },
         { key: 'openEnds', label: 'Open ends (walk-through galley)', type: 'toggle', show: (p) => p.layout === 'galley' },
-        { key: 'doorWall', label: 'Door', type: 'seg', options: [['front', 'Front'], ['left', 'Left'], ['right', 'Right'], ['none', 'None']], show: (p) => !(p.layout === 'galley' && p.openEnds) },
-        { key: 'doorPos', label: 'Door position', min: 0, max: 1, step: 0.01, unit: '%', show: (p) => p.doorWall !== 'none' && !(p.layout === 'galley' && p.openEnds) },
-        { key: 'doorW', label: 'Door width', min: 700, max: 1600, step: 10, unit: 'mm', show: (p) => p.doorWall !== 'none' && !(p.layout === 'galley' && p.openEnds) },
       ],
     },
+    { title: 'Openings', open: true, custom: 'openings' },
     {
       title: 'Runs', open: true, fields: [
         { key: 'legLeft', label: 'Left leg length', min: 1200, max: 6000, step: 50, unit: 'mm', show: has('left') },
@@ -106,7 +105,8 @@
       d.open = sec.open;
       d.innerHTML = `<summary><h2>${sec.title}</h2></summary>`;
       fieldsEl.appendChild(d);
-      if (sec.custom === 'appliances') buildAppliances(d);
+      if (sec.custom === 'openings') buildOpenings(d);
+      else if (sec.custom === 'appliances') buildAppliances(d);
       else if (sec.custom === 'finish') buildFinish(d);
       else for (const f of sec.fields) d.appendChild(buildField(f));
     }
@@ -181,6 +181,117 @@
     d.appendChild(buildField({ key: 'windowW', label: 'Window width', min: 600, max: 2400, step: 50, unit: 'mm', show: (p) => p.windowOverSink }));
   }
 
+  // ------------------------------------------------------------------ openings editor
+  // Each opening is placed by wall, reference corner and an exact offset in mm
+  // from that interior corner to the opening's near edge (see generator.js).
+  const TYPE_LABEL = { door: 'Door', window: 'Window', threshold: 'Threshold' };
+  const WALL_LABEL = { back: 'Back', front: 'Front', left: 'Left', right: 'Right' };
+  const cornerNames = (wall) => (wall === 'back' || wall === 'front' ? ['left', 'right'] : ['front', 'back']);
+  let opList = null;
+  let opSignature = '';
+
+  function buildOpenings(d) {
+    opList = document.createElement('div');
+    opList.className = 'op-list';
+    d.appendChild(opList);
+    const add = document.createElement('div');
+    add.className = 'op-add';
+    add.innerHTML = '<button data-t="door">+ Door</button><button data-t="window">+ Window</button><button data-t="threshold">+ Threshold</button>';
+    $$('button', add).forEach((b) => b.addEventListener('click', () => addOpening(b.dataset.t)));
+    d.appendChild(add);
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = 'Offset = distance from the chosen interior corner to the near edge of the opening. Corners are named as seen in plan.';
+    d.appendChild(hint);
+  }
+
+  function addOpening(type) {
+    const walls = model.walls.map((w) => w.id);
+    const pref = { door: 'front', window: 'back', threshold: 'right' }[type];
+    const wall = walls.includes(pref) ? pref : walls[0];
+    const len = wall === 'back' || wall === 'front' ? params.roomW : params.roomD;
+    const width = { door: 900, window: 1200, threshold: 1200 }[type];
+    const prefix = { door: 'D', window: 'W', threshold: 'T' }[type];
+    const n = 1 + Math.max(0, ...params.openings.map((o) => (o.id || '').startsWith(prefix) ? Number(o.id.slice(1)) || 0 : 0));
+    const o = { id: `${prefix}${n}`, type, wall, from: 'start', offset: Math.max(0, Math.round((len - width) / 20) * 10), width };
+    if (type === 'door') Object.assign(o, { height: 2100, hinge: 'start', swing: 'in' });
+    if (type === 'window') Object.assign(o, { height: 1200, sill: 1050 });
+    if (type === 'threshold') Object.assign(o, { height: Math.min(2200, params.wallH - 300), beamWidth: 0, bearing: 200 });
+    params.openings = params.openings.concat([o]);
+    refresh();
+  }
+
+  function setOpening(i, key, value) {
+    const patch = { [key]: value };
+    if (key === 'from') { // keep the opening where it is, just measure it from the other corner
+      const placed = model.openings.find((x) => x.id === params.openings[i].id);
+      if (placed) patch.offset = value === 'start' ? placed.fromStart : placed.fromEnd;
+    }
+    params.openings = params.openings.map((o, j) => (j === i ? Object.assign({}, o, patch) : o));
+    refresh();
+  }
+
+  function renderOpenings() {
+    if (!opList) return;
+    const ops = model.params.openings;
+    const walls = model.walls.map((w) => w.id);
+    const sig = ops.map((o) => `${o.id}:${o.type}:${o.wall}`).join('|') + '#' + walls.join(',');
+    if (sig !== opSignature) {
+      opSignature = sig;
+      opList.innerHTML = ops.length ? '' : '<p class="hint">No openings. Add a door, window or threshold.</p>';
+      ops.forEach((o, i) => opList.appendChild(openingCard(o, i, walls)));
+    }
+    ops.forEach((o, i) => {
+      const card = opList.children[i];
+      if (!card || !card.classList.contains('op-card')) return;
+      for (const inp of $$('input[data-k]', card)) if (document.activeElement !== inp) inp.value = o[inp.dataset.k];
+      for (const sg of $$('.seg[data-k]', card)) $$('button', sg).forEach((b) => b.classList.toggle('active', o[sg.dataset.k] === b.dataset.v));
+      const placed = model.openings.find((x) => x.id === o.id);
+      const [c0, c1] = cornerNames(o.wall);
+      const ro = $('.op-readout', card);
+      if (!placed) { ro.textContent = 'Ignored: this wall is open in the current layout.'; ro.classList.add('bad'); return; }
+      ro.classList.remove('bad');
+      let txt = `${placed.fromStart} mm from ${c0} corner · ${placed.fromEnd} mm from ${c1} corner`;
+      if (placed.kind === 'threshold') txt += ` · beam ${placed.beamW}×${placed.beamD} mm`;
+      if (placed.kind === 'window') txt += ` · head at ${placed.sill + placed.h} mm`;
+      ro.textContent = txt;
+    });
+  }
+
+  function openingCard(o, i, walls) {
+    const card = document.createElement('div');
+    card.className = `op-card op-${o.type}`;
+    const [c0, c1] = cornerNames(o.wall);
+    const num = (k, label, step = 10) => `<label class="op-num"><span>${label}</span><input type="number" step="${step}" data-k="${k}"><em>mm</em></label>`;
+    const seg = (k, opts) => `<div class="seg" data-k="${k}">${opts.map(([v, l]) => `<button data-v="${v}">${l}</button>`).join('')}</div>`;
+    card.innerHTML = `
+      <div class="op-head"><span class="op-tag">${o.id}</span><strong>${TYPE_LABEL[o.type]}</strong>
+        <select data-wall>${['back', 'front', 'left', 'right'].map((w) => `<option value="${w}" ${w === o.wall ? 'selected' : ''} ${walls.includes(w) ? '' : 'disabled'}>${WALL_LABEL[w]} wall</option>`).join('')}</select>
+        <button class="op-del" title="Remove">×</button></div>
+      <div class="op-row"><span class="op-lbl">From</span>${seg('from', [['start', `${c0} corner`], ['end', `${c1} corner`]])}</div>
+      <div class="op-grid">
+        ${num('offset', 'Offset')}${num('width', 'Width')}${num('height', o.type === 'threshold' ? 'Clear ht' : 'Height')}
+        ${o.type === 'window' ? num('sill', 'Sill') : ''}
+        ${o.type === 'threshold' ? num('beamWidth', 'Beam w') + num('bearing', 'Bearing') : ''}
+      </div>
+      ${o.type === 'door' ? `<div class="op-row"><span class="op-lbl">Hinge</span>${seg('hinge', [['start', c0], ['end', c1]])}<span class="op-lbl">Swing</span>${seg('swing', [['in', 'In'], ['out', 'Out']])}</div>` : ''}
+      <div class="op-readout"></div>`;
+    $('[data-wall]', card).addEventListener('change', (e) => setOpening(i, 'wall', e.target.value));
+    $('.op-del', card).addEventListener('click', () => { params.openings = params.openings.filter((_, j) => j !== i); refresh(); });
+    for (const inp of $$('input[data-k]', card)) {
+      inp.addEventListener('change', () => setOpening(i, inp.dataset.k, Number(inp.value)));
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') inp.blur(); });
+    }
+    for (const sg of $$('.seg[data-k]', card)) {
+      $$('button', sg).forEach((b) => b.addEventListener('click', () => setOpening(i, sg.dataset.k, b.dataset.v)));
+    }
+    const beamW = $('input[data-k="beamWidth"]', card);
+    if (beamW) beamW.placeholder = 'wall';
+    card.addEventListener('mouseenter', () => { highlightOpening = o.id; drawPlan(); });
+    card.addEventListener('mouseleave', () => { highlightOpening = null; drawPlan(); });
+    return card;
+  }
+
   function buildFinish(d) {
     const pre = document.createElement('div');
     pre.className = 'seg';
@@ -235,7 +346,7 @@
 
   function setLayout(id) {
     const island = params.island && G.LAYOUTS[id].island;
-    params = Object.assign({}, params, G.LAYOUTS[id].defaults, { layout: id, island });
+    params = Object.assign({}, params, JSON.parse(JSON.stringify(G.LAYOUTS[id].defaults)), { layout: id, island });
     viewer.reframe();
     refresh();
   }
@@ -270,6 +381,7 @@
       e.sync();
       if (e.f.show) e.wrap.hidden = !e.f.show(params);
     }
+    renderOpenings();
     $$('.layout-card').forEach((b) => b.classList.toggle('active', b.dataset.layout === params.layout));
     const it = $('#island-toggle');
     it.hidden = !G.LAYOUTS[params.layout].island;
@@ -287,7 +399,7 @@
 
   function drawPlan() {
     planView = KitchenPlan.draw(planCanvas, model, {
-      triangle: $('#show-tri').checked, dims: $('#show-dims').checked, wallCabs: $('#show-wc').checked, highlight,
+      triangle: $('#show-tri').checked, dims: $('#show-dims').checked, wallCabs: $('#show-wc').checked, highlight, highlightOpening,
     });
   }
 
@@ -309,7 +421,8 @@
       ['Room', `${(params.roomW / 1000).toFixed(2)} × ${(params.roomD / 1000).toFixed(2)} m (${s.floorArea} m²)`],
       ['Worktop', `${(s.worktopLength / 1000).toFixed(2)} m · ${s.worktopArea} m²`],
       ['Base units', s.baseUnits], ['Wall units', s.wallUnits], ['Tall units', s.tallUnits], ['Seats', s.seats],
-      ['Elements', model.boxes.length + model.walls.length + model.openings.length],
+      ['Openings', model.openings.length ? model.openings.map((o) => o.id).join(', ') : '—'],
+      ['Elements', model.boxes.length + model.walls.reduce((a, w) => a + w.segments.length, 0) + model.openings.length + model.beams.length],
     ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
 
     $('#schedule tbody').innerHTML = model.schedule.map((r) =>

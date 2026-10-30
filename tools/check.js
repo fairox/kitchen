@@ -23,6 +23,13 @@ for (const [id, def] of Object.entries(G.LAYOUTS)) {
     cases.push(Object.assign(base, G.fitIsland(base), { cookRun: 'island', cookPos: 0.5 }));
   }
   cases.push(Object.assign({ layout: id }, def.defaults, { pantryCount: 2, dwSide: 'left', roomW: 3000 }));
+  // every wall gets a door, a threshold or a window, some of them where cabinets would be
+  cases.push(Object.assign({ layout: id }, def.defaults, { openEnds: false, openings: [
+    { type: 'door', wall: 'back', from: 'start', offset: 700, width: 800 },
+    { type: 'threshold', wall: 'right', from: 'start', offset: 200, width: 1200, height: 2200, beamWidth: 250 },
+    { type: 'window', wall: 'left', from: 'end', offset: 1000, width: 900, sill: 1050 },
+    { type: 'window', wall: 'front', from: 'start', offset: 1200, width: 1000, sill: 600 },
+  ] }));
 }
 
 for (const c of cases) {
@@ -58,6 +65,25 @@ for (const c of cases) {
     const fa = box3(f);
     const other = solid3.find((o) => o !== f && hit3(fa, box3(o)));
     if (other) fail(`${f.label} (${f.id}) collides with ${other.label} (${other.id})`);
+  }
+  // nothing on the floor in front of a door or threshold on the wall a run stands against
+  for (const o of m.openings.filter((x) => x.kind !== 'window' || x.sill < p.counterH)) {
+    for (const r of m.runs.filter((r) => r.wall === o.wall)) {
+      for (const b of m.boxes.filter((b) => b.run === r.id && [...SOLID, 'counter'].includes(b.kind))) {
+        const a = G.aabb(b);
+        const along = o.wall === 'back' || o.wall === 'front' ? [a[0], a[2]] : [a[1], a[3]];
+        if (along[0] < o.a1 - 1 && along[1] > o.a0 + 1) fail(`${b.label} stands in ${o.id} on the ${o.wall} wall`);
+      }
+    }
+  }
+  for (const o of m.openings.filter((x) => x.kind === 'window')) {
+    for (const r of m.runs.filter((r) => r.wall === o.wall)) {
+      for (const b of m.boxes.filter((b) => b.run === r.id && ['wallCab', 'fridge', 'pantry'].includes(b.kind))) {
+        const a = G.aabb(b);
+        const along = o.wall === 'back' || o.wall === 'front' ? [a[0], a[2]] : [a[1], a[3]];
+        if (along[0] < o.a1 - 1 && along[1] > o.a0 + 1 && b.z < o.sill + o.h && b.z + b.H > o.sill) fail(`${b.label} covers ${o.id}`);
+      }
+    }
   }
   for (const k of ['sink', 'cooktop', 'fridge']) if (!m.triangle.points[k]) fail(`missing ${k}`);
   if (c.island) m.checks.filter((x) => x.level === 'error').forEach((x) => fail(`fitted island: ${x.msg}`));

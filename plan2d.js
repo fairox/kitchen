@@ -31,7 +31,7 @@
   }
 
   function draw(canvas, model, opts) {
-    opts = Object.assign({ thumb: false, triangle: true, dims: true, wallCabs: true, labels: true, highlight: null }, opts);
+    opts = Object.assign({ thumb: false, triangle: true, dims: true, wallCabs: true, labels: true, highlight: null, highlightOpening: null }, opts);
     const dpr = window.devicePixelRatio || 1;
     const cw = canvas.clientWidth, ch = canvas.clientHeight;
     if (!cw || !ch) return null;
@@ -43,7 +43,7 @@
     ctx.clearRect(0, 0, cw, ch);
     if (!opts.thumb) ctx.fillRect(0, 0, cw, ch);
 
-    const pad = opts.thumb ? 80 : opts.dims ? 900 : 300;
+    const pad = opts.thumb ? 80 : opts.dims ? 1050 : 300;
     const [x0, y0, x1, y1] = bounds(model, pad);
     const s = Math.min(cw / (x1 - x0), ch / (y1 - y0));
     const ox = (cw - (x1 - x0) * s) / 2 - x0 * s;
@@ -195,30 +195,60 @@
         ctx.beginPath(); q.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y)))); ctx.closePath();
         ctx.fillStyle = C.wall; ctx.fill();
       }
+      const p = model.params;
+      const mid0 = [w.x1 + ux * len / 2, w.y1 + uy * len / 2];
+      const room = ((p.roomW / 2 - mid0[0]) * nx + (p.roomD / 2 - mid0[1]) * ny) > 0 ? 1 : -1; // normal side facing the room
+      const P = (d, o) => [w.x1 + ux * d + nx * o, w.y1 + uy * d + ny * o];
+      const line = (pa, pb, lw, color, dash) => {
+        ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.setLineDash(dash || []);
+        ctx.beginPath(); ctx.moveTo(X(pa[0]), Y(pa[1])); ctx.lineTo(X(pb[0]), Y(pb[1])); ctx.stroke(); ctx.setLineDash([]);
+      };
       for (const [a, b, o] of ops) {
         const q = quad(a, b);
         if (o.kind === 'window') {
-          ctx.strokeStyle = C.window; ctx.lineWidth = opts.thumb ? 1 : 2;
-          const m0 = [(q[0][0] + q[3][0]) / 2, (q[0][1] + q[3][1]) / 2], m1 = [(q[1][0] + q[2][0]) / 2, (q[1][1] + q[2][1]) / 2];
-          ctx.beginPath(); ctx.moveTo(X(q[0][0]), Y(q[0][1])); ctx.lineTo(X(q[1][0]), Y(q[1][1])); ctx.moveTo(X(q[3][0]), Y(q[3][1])); ctx.lineTo(X(q[2][0]), Y(q[2][1])); ctx.stroke();
-          ctx.lineWidth = opts.thumb ? 0.6 : 1;
-          ctx.beginPath(); ctx.moveTo(X(m0[0]), Y(m0[1])); ctx.lineTo(X(m1[0]), Y(m1[1])); ctx.stroke();
+          line(q[0], q[1], opts.thumb ? 1 : 2, C.window);
+          line(q[3], q[2], opts.thumb ? 1 : 2, C.window);
+          line(P(a, 0), P(b, 0), opts.thumb ? 0.6 : 1, C.window);
+          // sill line on the room side
+          if (!opts.thumb) line(P(a, room * (w.t / 2 + 40)), P(b, room * (w.t / 2 + 40)), 0.8, C.window);
+        } else if (o.kind === 'threshold') {
+          // jambs, and the beam overhead drawn dashed (above the cut plane)
+          const hw = (o.beamW || w.t) / 2;
+          line(P(a, -w.t / 2), P(a, w.t / 2), opts.thumb ? 0.8 : 1.4, C.wall);
+          line(P(b, -w.t / 2), P(b, w.t / 2), opts.thumb ? 0.8 : 1.4, C.wall);
+          const ext = Math.min(o.bearing || 0, 400);
+          line(P(a - ext, -hw), P(b + ext, -hw), opts.thumb ? 0.6 : 1, C.text, [8, 5]);
+          line(P(a - ext, hw), P(b + ext, hw), opts.thumb ? 0.6 : 1, C.text, [8, 5]);
         } else {
-          // door leaf + swing into the room; hinge on the "a" side, room side is the side facing the centre
-          const p = model.params;
-          const cx = p.roomW / 2, cy = p.roomD / 2;
-          const mid = [w.x1 + ux * o.offset, w.y1 + uy * o.offset];
-          const side = ((cx - mid[0]) * nx + (cy - mid[1]) * ny) > 0 ? 1 : -1;
-          const hinge = [w.x1 + ux * a + nx * side * w.t / 2, w.y1 + uy * a + ny * side * w.t / 2];
-          const leafEnd = [hinge[0] + nx * side * o.w, hinge[1] + ny * side * o.w];
-          ctx.strokeStyle = C.text; ctx.lineWidth = opts.thumb ? 0.8 : 1.5;
-          ctx.beginPath(); ctx.moveTo(X(hinge[0]), Y(hinge[1])); ctx.lineTo(X(leafEnd[0]), Y(leafEnd[1])); ctx.stroke();
-          const a0 = Math.atan2(-(ny * side), nx * side), a1 = Math.atan2(-uy, ux);
-          ctx.lineWidth = opts.thumb ? 0.5 : 0.9; ctx.setLineDash([4, 3]);
-          ctx.beginPath();
+          // leaf drawn open at 90°, hinged at the chosen jamb, swinging in or out
+          const side = o.swing === 'out' ? -room : room;
+          const hd = o.hinge === 'end' ? b : a, fd = o.hinge === 'end' ? a : b;
+          const hinge = P(hd, side * w.t / 2);
+          const leaf = o.w - 20;
+          const leafEnd = [hinge[0] + nx * side * leaf, hinge[1] + ny * side * leaf];
+          line(hinge, leafEnd, opts.thumb ? 0.8 : 1.8, C.text);
+          const closed = P(fd, side * w.t / 2);
+          const a0 = Math.atan2(-(leafEnd[1] - hinge[1]), leafEnd[0] - hinge[0]);
+          const a1 = Math.atan2(-(closed[1] - hinge[1]), closed[0] - hinge[0]);
           let d = a1 - a0; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
-          ctx.arc(X(hinge[0]), Y(hinge[1]), o.w * s, a0, a1, d < 0);
-          ctx.stroke(); ctx.setLineDash([]);
+          ctx.strokeStyle = C.text; ctx.lineWidth = opts.thumb ? 0.5 : 0.9; ctx.setLineDash([4, 3]);
+          ctx.beginPath(); ctx.arc(X(hinge[0]), Y(hinge[1]), leaf * s, a0, a1, d < 0); ctx.stroke(); ctx.setLineDash([]);
+        }
+        if (opts.highlightOpening === o.id) {
+          const hq = [P(a, -w.t / 2 - 60), P(b, -w.t / 2 - 60), P(b, w.t / 2 + 60), P(a, w.t / 2 + 60)];
+          ctx.beginPath(); hq.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y)))); ctx.closePath();
+          ctx.fillStyle = 'rgba(232,116,44,0.18)'; ctx.fill(); ctx.strokeStyle = C.triangle; ctx.lineWidth = 1.5; ctx.stroke();
+        }
+        if (!opts.thumb && opts.labels) {
+          // tag inside the room, beyond an in-swinging leaf
+          const tagOff = room * (w.t / 2 + (o.kind === 'door' && o.swing === 'in' ? o.w : 0) + 170);
+          const [tx, ty] = P((a + b) / 2, tagOff);
+          const sub = o.kind === 'window' ? `${o.w}×${o.h} · sill ${o.sill}` : o.kind === 'threshold' ? `${o.w}×${o.h} · beam ${o.beamW}×${o.beamD}` : `${o.w}×${o.h}`;
+          ctx.font = '600 10px Inter, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          const tw = Math.max(ctx.measureText(o.id).width, (ctx.font = '9px Inter, system-ui, sans-serif', ctx.measureText(sub).width)) + 8;
+          ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(X(tx) - tw / 2, Y(ty) - 12, tw, 24);
+          ctx.fillStyle = C.text; ctx.font = '600 10px Inter, system-ui, sans-serif'; ctx.fillText(o.id, X(tx), Y(ty) - 5);
+          ctx.font = '9px Inter, system-ui, sans-serif'; ctx.fillStyle = '#6b665d'; ctx.fillText(sub, X(tx), Y(ty) + 6);
         }
       }
     }
@@ -248,15 +278,42 @@
     ctx.restore();
   }
 
+  // Corner-to-edge dimension chain along every wall that has openings,
+  // just outside the wall (interior dimensions).
+  function drawOpeningChains(ctx, model, v) {
+    const p = model.params, W = p.roomW, D = p.roomD, t = p.wallT, off = 170;
+    const lines = {
+      back: (a) => [a, D + t], front: (a) => [a, -t], left: (a) => [-t, a], right: (a) => [W + t, a],
+    };
+    const sign = { back: 1, front: -1, left: 1, right: -1 };
+    for (const wall of Object.keys(lines)) {
+      const ops = model.openings.filter((o) => o.wall === wall).sort((a, b) => a.a0 - b.a0);
+      if (!ops.length) continue;
+      const len = wall === 'back' || wall === 'front' ? W : D;
+      const pts = [0];
+      for (const o of ops) pts.push(o.a0, o.a1);
+      pts.push(len);
+      for (let i = 0; i < pts.length - 1; i++) {
+        const d = pts[i + 1] - pts[i];
+        if (d < 1) continue;
+        const [x1, y1] = lines[wall](pts[i]), [x2, y2] = lines[wall](pts[i + 1]);
+        dimLine(ctx, v, x1, y1, x2, y2, sign[wall] * off, `${Math.round(d)}`);
+      }
+    }
+  }
+
   function drawDims(ctx, model, v) {
     const p = model.params, bd = p.baseDepth, W = p.roomW, D = p.roomD, t = p.wallT;
-    dimLine(ctx, v, 0, D + t, W, D + t, 350, `${W}`);
-    dimLine(ctx, v, -t, 0, -t, D, 350, `${D}`);
+    drawOpeningChains(ctx, model, v);
+    dimLine(ctx, v, 0, D + t, W, D + t, 420, `${W}`);
+    dimLine(ctx, v, -t, 0, -t, D, 420, `${D}`);
     const R = Object.fromEntries(model.runs.map((r) => [r.id, r]));
     // aisle dimensions
     if (R.front) dimLine(ctx, v, W * 0.15, bd, W * 0.15, D - bd, 0, `${D - 2 * bd}`);
     if (R.left && R.right) dimLine(ctx, v, bd, D * 0.35, W - bd, D * 0.35, 0, `${W - 2 * bd}`);
-    if (R.left) dimLine(ctx, v, W + t, D, W + t, D - (R.left.length + bd), -350, `${Math.round(R.left.length + bd)}`);
+    // leg lengths, each outside its own wall (beyond the overall and opening dimensions)
+    if (R.left) dimLine(ctx, v, -t, D - (R.left.length + bd), -t, D, 640, `${Math.round(R.left.length + bd)}`);
+    if (R.right) dimLine(ctx, v, W + t, D, W + t, D - (R.right.length + bd), 420, `${Math.round(R.right.length + bd)}`);
     if (R.island) {
       const i = R.island;
       dimLine(ctx, v, i.ox, i.oy + bd + p.nosing, i.ox, D - bd, 0, `${Math.round(D - bd - i.oy - bd - p.nosing)}`);

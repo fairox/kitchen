@@ -26,7 +26,11 @@
 
     // Room
     roomW: 4200, roomD: 3600, wallH: 2700, wallT: 150, openEnds: true,
-    doorWall: 'front', doorPos: 0.75, doorW: 900, doorH: 2100,
+    // Openings, placed precisely: `from` names the reference corner of the wall
+    // ('start' = left end of back/front walls, front end of left/right walls, as
+    // seen in plan) and `offset` is the distance from that interior corner to
+    // the near edge of the opening, in mm.
+    openings: [{ type: 'door', wall: 'front', from: 'end', offset: 390, width: 900, height: 2100, hinge: 'end', swing: 'in' }],
 
     // Base cabinets & worktop
     counterH: 900, counterT: 30, baseDepth: 600, plinthH: 100, nosing: 20, moduleMax: 600,
@@ -59,29 +63,36 @@
   const LAYOUTS = {
     'one-wall': {
       label: 'One-wall', island: true, runs: ['back'],
-      defaults: { sinkRun: 'back', sinkPos: 0.5, cookRun: 'back', cookPos: 0.85, fridgeRun: 'back', fridgePos: 0.02, roomW: 4200, roomD: 3000, doorWall: 'front', doorPos: 0.5 },
+      defaults: { sinkRun: 'back', sinkPos: 0.5, cookRun: 'back', cookPos: 0.85, fridgeRun: 'back', fridgePos: 0.02, roomW: 4200, roomD: 3000, openings: [{ type: 'door', wall: 'front', from: 'start', offset: 1650, width: 900, height: 2100, hinge: 'start', swing: 'in' }] },
     },
     galley: {
       label: 'Galley', island: false, runs: ['back', 'front'],
-      defaults: { sinkRun: 'back', sinkPos: 0.5, cookRun: 'front', cookPos: 0.5, fridgeRun: 'back', fridgePos: 0.02, roomW: 4200, roomD: 2400, openEnds: true, doorWall: 'left', doorPos: 0.5 },
+      defaults: { sinkRun: 'back', sinkPos: 0.5, cookRun: 'front', cookPos: 0.5, fridgeRun: 'back', fridgePos: 0.02, roomW: 4200, roomD: 2400, openEnds: true, openings: [{ type: 'door', wall: 'left', from: 'start', offset: 750, width: 900, height: 2100, hinge: 'start', swing: 'in' }] },
     },
     'l-shape': {
       label: 'L-shaped', island: true, runs: ['back', 'left'],
-      defaults: { sinkRun: 'back', sinkPos: 0.75, cookRun: 'back', cookPos: 0.1, fridgeRun: 'left', fridgePos: 1, roomW: 4200, roomD: 3600, legLeft: 2700, doorWall: 'front', doorPos: 0.8 },
+      defaults: { sinkRun: 'back', sinkPos: 0.75, cookRun: 'back', cookPos: 0.1, fridgeRun: 'left', fridgePos: 1, roomW: 4200, roomD: 3600, legLeft: 2700, openings: [{ type: 'door', wall: 'front', from: 'end', offset: 390, width: 900, height: 2100, hinge: 'end', swing: 'in' }] },
     },
     'u-shape': {
       label: 'U-shaped', island: true, runs: ['back', 'left', 'right'],
-      defaults: { sinkRun: 'back', sinkPos: 0.5, cookRun: 'left', cookPos: 0.5, fridgeRun: 'right', fridgePos: 0.6, roomW: 4000, roomD: 3600, legLeft: 2700, legRight: 2400, doorWall: 'front', doorPos: 0.5 },
+      defaults: { sinkRun: 'back', sinkPos: 0.5, cookRun: 'left', cookPos: 0.5, fridgeRun: 'right', fridgePos: 0.6, roomW: 4000, roomD: 3600, legLeft: 2700, legRight: 2400, openings: [{ type: 'door', wall: 'front', from: 'start', offset: 1550, width: 900, height: 2100, hinge: 'start', swing: 'in' }] },
     },
     'g-shape': {
       label: 'G-shaped', island: false, runs: ['back', 'left', 'right', 'peninsula'],
-      defaults: { sinkRun: 'back', sinkPos: 0.5, cookRun: 'left', cookPos: 0.35, fridgeRun: 'right', fridgePos: 0.4, roomW: 4000, roomD: 4200, legLeft: 2900, legRight: 1500, pensLen: 2000, doorWall: 'right', doorPos: 0.25 },
+      defaults: { sinkRun: 'back', sinkPos: 0.5, cookRun: 'left', cookPos: 0.35, fridgeRun: 'right', fridgePos: 0.4, roomW: 4000, roomD: 4200, legLeft: 2900, legRight: 1500, pensLen: 2000, openings: [{ type: 'door', wall: 'right', from: 'start', offset: 600, width: 900, height: 2100, hinge: 'start', swing: 'in' }] },
     },
     peninsula: {
       label: 'Peninsula', island: false, runs: ['back', 'left', 'peninsula'],
-      defaults: { sinkRun: 'peninsula', sinkPos: 0.55, cookRun: 'back', cookPos: 0.5, fridgeRun: 'left', fridgePos: 0.95, roomW: 4800, roomD: 3600, legLeft: 2400, pensLen: 1800, pensPos: 0.72, doorWall: 'front', doorPos: 0.88 },
+      defaults: { sinkRun: 'peninsula', sinkPos: 0.55, cookRun: 'back', cookPos: 0.5, fridgeRun: 'left', fridgePos: 0.95, roomW: 4800, roomD: 3600, legLeft: 2400, pensLen: 1800, pensPos: 0.72, openings: [{ type: 'door', wall: 'front', from: 'end', offset: 200, width: 900, height: 2100, hinge: 'end', swing: 'in' }] },
     },
   };
+
+  const OPENING_DEFAULTS = {
+    door: { width: 900, height: 2100, sill: 0, hinge: 'start', swing: 'in' },
+    window: { width: 1200, height: 1200, sill: 1050 },
+    threshold: { width: 1200, height: 2200, sill: 0, beamWidth: 0, bearing: 200 }, // beamWidth 0 = wall thickness
+  };
+  const WALLS = ['back', 'front', 'left', 'right'];
 
   const CAT = { WALL: 'Walls', CAB: 'Cabinets', TOP: 'Worktops', APP: 'Appliances', FURN: 'Furniture' };
 
@@ -113,9 +124,66 @@
     p.tallH = clamp(p.tallH, p.counterH + 300, p.wallH);
     p.pantryCount = Math.round(clamp(p.pantryCount, 0, 4));
     p.overhang = clamp(p.overhang, 0, 600);
-    for (const k of ['sinkPos', 'cookPos', 'fridgePos', 'doorPos', 'pensPos']) p[k] = clamp(p[k], 0, 1);
+    for (const k of ['sinkPos', 'cookPos', 'fridgePos', 'pensPos']) p[k] = clamp(p[k], 0, 1);
+    p.openings = normaliseOpenings(input || {}, p);
     p.island = p.island && LAYOUTS[p.layout].island;
     return p;
+  }
+
+  // ---------------------------------------------------------------- openings
+
+  function normaliseOpenings(input, p) {
+    let list = input.openings;
+    if (!Array.isArray(list) && input.doorWall) { // links made before openings existed
+      const len = input.doorWall === 'back' || input.doorWall === 'front' ? p.roomW : p.roomD;
+      const w = Number(input.doorW) || 900;
+      list = input.doorWall === 'none' ? [] : [{ type: 'door', wall: input.doorWall, from: 'start', offset: Math.round((Number(input.doorPos) || 0.5) * len - w / 2), width: w }];
+    }
+    if (!Array.isArray(list)) list = DEFAULTS.openings;
+    return list.filter((o) => o && OPENING_DEFAULTS[o.type]).map((o, i) => {
+      const d = OPENING_DEFAULTS[o.type];
+      const q = Object.assign({}, d, o);
+      for (const k of ['offset', 'width', 'height', 'sill', 'beamWidth', 'bearing']) {
+        const v = Number(q[k]);
+        q[k] = Number.isFinite(v) ? Math.round(v) : (d[k] || 0);
+      }
+      q.wall = WALLS.includes(q.wall) ? q.wall : 'front';
+      q.from = q.from === 'end' ? 'end' : 'start';
+      q.hinge = q.hinge === 'end' ? 'end' : 'start';
+      q.swing = q.swing === 'out' ? 'out' : 'in';
+      q.id = typeof o.id === 'string' && o.id ? o.id : `${{ door: 'D', window: 'W', threshold: 'T' }[q.type]}${i + 1}`;
+      return q;
+    });
+  }
+
+  // Resolve one opening against the room: its span [a0, a1] along the wall's
+  // interior face (x for back/front, y for left/right), clamped to fit.
+  function placeOpening(q, p, notes) {
+    const len = q.wall === 'back' || q.wall === 'front' ? p.roomW : p.roomD;
+    const label = `${q.id} (${q.type} on ${q.wall} wall)`;
+    const width = clamp(q.width, 300, len);
+    if (width !== q.width) notes.push(`${label}: width clamped to ${width} mm.`);
+    const maxOff = len - width;
+    const off = clamp(q.offset, 0, maxOff);
+    if (off !== q.offset) notes.push(`${label}: offset clamped to ${off} mm to stay within the wall.`);
+    const a0 = q.from === 'start' ? off : len - off - width;
+    let h = q.height, sill = q.type === 'window' ? clamp(q.sill, 0, p.wallH - 300) : 0;
+    const maxH = q.type === 'threshold' ? p.wallH - 100 : p.wallH - sill - 50;
+    h = clamp(h, 300, maxH);
+    if (h !== q.height) notes.push(`${label}: height clamped to ${h} mm.`);
+    const out = {
+      id: q.id, kind: q.type, wall: q.wall, a0, a1: a0 + width,
+      offset: r1(a0 + width / 2 + p.wallT / 2), // centre, measured from the wall's start point (outer corner)
+      w: width, h, sill, from: q.from, fromStart: a0, fromEnd: len - a0 - width,
+    };
+    if (q.type === 'door') Object.assign(out, { hinge: q.hinge, swing: q.swing });
+    if (q.type === 'threshold') Object.assign(out, { beamW: q.beamWidth > 0 ? q.beamWidth : p.wallT, beamD: p.wallH - h, bearing: clamp(q.bearing, 0, 600) });
+    return out;
+  }
+
+  // interior face point of a wall at coordinate a
+  function wallPoint(wall, a, p) {
+    return wall === 'back' ? [a, p.roomD] : wall === 'front' ? [a, 0] : wall === 'left' ? [0, a] : [p.roomW, a];
   }
 
   // ---------------------------------------------------------------- runs
@@ -200,9 +268,10 @@
 
   // ---------------------------------------------------------------- run filling
 
+  // Pack appliance groups into one free stretch [lo, hi] of a run; hard0/hard1
+  // are the stretch limits including corner zones (used only when it overflows).
   // items: [{key, w, s}] with s = desired centre. Returns resolved centres; mutates.
-  function resolveItems(run, items, notes) {
-    let lo = run.startCorner, hi = run.length - run.endCorner;
+  function packItems(run, items, notes, lo, hi, hard0, hard1) {
     const total = () => items.reduce((a, it) => a + it.w, 0);
     // Too much for the run: shed optional parts, then borrow the corner zones, then drop items.
     for (const kind of ['pantry', 'dishwasher']) {
@@ -216,8 +285,8 @@
       }
     }
     if (total() > hi - lo + 1e-6) {
-      lo = 0; hi = run.length;
-      notes.push(`${run.label}: appliances pushed into the corner zone.`);
+      if (hard1 - hard0 > hi - lo + 1) notes.push(`${run.label}: appliances pushed into the corner zone.`);
+      lo = hard0; hi = hard1;
     }
     while (items.length && total() > hi - lo + 1e-6) {
       const it = items.pop();
@@ -251,6 +320,41 @@
       nextStart = it.s - it.w / 2;
     }
     return items;
+  }
+
+  // Distribute appliance groups over the stretches of a run left free by doors,
+  // thresholds and low windows, nearest stretch first; tall groups also avoid windows.
+  function resolveItems(run, items, notes, baseVoids, tallVoids) {
+    const lo0 = run.startCorner, hi0 = run.length - run.endCorner;
+    if (!baseVoids.length && !tallVoids.length) return packItems(run, items, notes, lo0, hi0, 0, run.length);
+    const free = gaps(0, run.length, baseVoids).map(([a, b]) => ({ a, b, lo: Math.max(a, lo0), hi: Math.min(b, hi0), items: [] }));
+    free.forEach((f) => (f.cap = f.hi - f.lo));
+    const tallFree = gaps(0, run.length, tallVoids);
+    for (const it of items.slice().sort((x, y) => y.w - x.w)) {
+      const tall = it.parts.some((q) => q.tall);
+      let best = null, bestD = Infinity;
+      for (const f of free) {
+        if (f.cap < it.w - 1e-6) continue;
+        // a tall group needs a window-free part of the stretch that is wide enough
+        const zones = tall ? tallFree.map(([a, b]) => [Math.max(a, f.lo), Math.min(b, f.hi)]).filter(([a, b]) => b - a >= it.w - 1e-6) : [[f.lo, f.hi]];
+        for (const [a, b] of zones) {
+          const d = it.s < a + it.w / 2 ? a + it.w / 2 - it.s : it.s > b - it.w / 2 ? it.s - (b - it.w / 2) : 0;
+          if (d < bestD) { bestD = d; best = { f, a, b }; }
+        }
+      }
+      if (!best) {
+        const f = free.reduce((m, x) => (x.cap > m.cap ? x : m), free[0]);
+        if (!f) { notes.push(`${run.label}: no free wall for the ${it.key} — removed.`); continue; }
+        best = { f, a: f.lo, b: f.hi };
+        if (bestD === Infinity) notes.push(`${run.label}: openings leave too little room for the ${it.key}.`);
+      }
+      it.s = clamp(it.s, best.a + it.w / 2, Math.max(best.a + it.w / 2, best.b - it.w / 2));
+      best.f.items.push(it);
+      best.f.cap -= it.w;
+    }
+    const out = [];
+    for (const f of free) if (f.items.length) out.push(...packItems(run, f.items, notes, f.lo, f.hi, f.a, f.b));
+    return out;
   }
 
   // Split a gap into catalogue widths using as few units as possible (exact sum
@@ -369,6 +473,50 @@
       }
     }
 
+    // ---- walls and the openings placed in them
+    const t = p.wallT;
+    const walls = [];
+    const wallDefs = {
+      back: [-t / 2, D + t / 2, W + t / 2, D + t / 2],
+      front: [-t / 2, -t / 2, W + t / 2, -t / 2],
+      left: [-t / 2, -t / 2, -t / 2, D + t / 2],
+      right: [W + t / 2, -t / 2, W + t / 2, D + t / 2],
+    };
+    const omitSides = p.layout === 'galley' && p.openEnds;
+    for (const [id, [x1, y1, x2, y2]] of Object.entries(wallDefs)) {
+      if (omitSides && (id === 'left' || id === 'right')) continue;
+      walls.push({ id, x1, y1, x2, y2, t, h: p.wallH });
+    }
+    const wallById = Object.fromEntries(walls.map((w) => [w.id, w]));
+    const openings = [];
+    for (const q of p.openings) {
+      if (!wallById[q.wall]) { notes.push(`${q.id}: the ${q.wall} wall is open in this layout — opening ignored.`); continue; }
+      openings.push(placeOpening(q, p, notes));
+    }
+
+    // Stretches of each wall run that openings take away, in run coordinates.
+    // base: doors, thresholds and windows whose sill is below the worktop;
+    // tall: base + every window; wall units: anything reaching into their band.
+    const CASING = 50;
+    const toS = (run, x, y) => (x - run.ox) * run.ux + (y - run.oy) * run.uy;
+    function runVoids(run) {
+      const v = { base: [], tall: [], wall: [] };
+      if (run.freestanding) return v;
+      for (const o of openings) {
+        if (o.wall !== run.wall) continue;
+        const sa = toS(run, ...wallPoint(o.wall, o.a0, p)), sb = toS(run, ...wallPoint(o.wall, o.a1, p));
+        const m = o.kind === 'window' ? 0 : CASING;
+        const iv = [Math.max(0, Math.min(sa, sb) - m), Math.min(run.length, Math.max(sa, sb) + m)];
+        if (iv[1] <= iv[0]) continue;
+        const wtop = p.wallCabElev + p.wallCabH;
+        if (o.kind !== 'window' || o.sill < p.counterH + 10) v.base.push(iv);
+        v.tall.push(iv);
+        if (o.kind !== 'window' ? o.h > p.wallCabElev : o.sill < wtop && o.sill + o.h > p.wallCabElev) v.wall.push([iv[0] - 50, iv[1] + 50]);
+      }
+      v.base = mergeIntervals(v.base); v.tall = mergeIntervals(v.tall); v.wall = mergeIntervals(v.wall);
+      return v;
+    }
+
     // ---- appliance assignment
     const runIds = Object.keys(runs);
     const wallRuns = runIds.filter((id) => !runs[id].freestanding);
@@ -405,7 +553,17 @@
       itemsByRun[cookRun].push({ key: 'cook', parts: [{ kind: 'cooktop', w: p.cookW }], w: p.cookW, s: posOf(run, p.cookPos, p.cookW) });
     }
     {
-      const run = runs[fridgeRun];
+      // a tall unit needs a window- and door-free stretch; try the other wall runs before giving up
+      const fits = (id) => {
+        const r = runs[id];
+        return gaps(r.startCorner, r.length - r.endCorner, runVoids(r).tall).some(([a, b]) => b - a >= p.fridgeW - 1e-6);
+      };
+      let fRun = fridgeRun;
+      if (!fits(fRun)) {
+        const alt = wallRuns.find(fits);
+        if (alt) { notes.push(`Fridge moved to the ${runs[alt].label.toLowerCase()} run: openings leave no ${p.fridgeW} mm stretch on the ${runs[fRun].label.toLowerCase()}.`); fRun = alt; }
+      }
+      const run = runs[fRun];
       const parts = [{ kind: 'fridge', w: p.fridgeW, tall: true }];
       const s0 = posOf(run, p.fridgePos, p.fridgeW);
       const towardEnd = s0 < run.length / 2;
@@ -415,17 +573,19 @@
       }
       const w = parts.reduce((a, q) => a + q.w, 0);
       const fOff = parts.slice(0, parts.findIndex((q) => q.kind === 'fridge')).reduce((a, q) => a + q.w, 0) + p.fridgeW / 2;
-      itemsByRun[fridgeRun].push({ key: 'fridge', parts, w, s: s0 - fOff + w / 2 });
+      itemsByRun[fRun].push({ key: 'fridge', parts, w, s: s0 - fOff + w / 2 });
     }
 
     const placed = {}; // kind -> {run, s, w}
+    let sinkWindow = null;
     const cooktopLanding = [];
     const sinkLanding = [];
 
     // ---- per run
     for (const id of runIds) {
       const run = runs[id];
-      const items = resolveItems(run, itemsByRun[id], notes);
+      const voids = runVoids(run);
+      const items = resolveItems(run, itemsByRun[id], notes, voids.base, voids.tall);
 
       // expand groups into concrete segments
       const segs = [];
@@ -439,12 +599,13 @@
       }
       segs.sort((a, b) => a.s0 - b.s0);
 
-      // fill gaps with base cabinets
-      const fixedIv = segs.map((g) => [g.s0, g.s1]);
+      // fill gaps with base cabinets, leaving openings clear
+      const fixedIv = mergeIntervals(segs.map((g) => [g.s0, g.s1]).concat(voids.base));
       const baseSegs = segs.slice();
+      const edge = (x) => x < 1 || x > run.length - 1 || voids.base.some(([a, b]) => Math.abs(a - x) < 1 || Math.abs(b - x) < 1);
       for (const [a, b] of gaps(0, run.length, fixedIv)) {
         let s = a;
-        const fillerFirst = a < 1 && b < run.length - 1; // gap starts at the run end
+        const fillerFirst = edge(a) && !edge(b); // filler against the wall end or the opening
         const mods = modules(b - a, p.moduleMax, 150, fillerFirst);
         // widest unit towards the run end the gap touches (for the corner unit)
         if (b > run.length - 1 && a > 1) mods.sort((x, y) => (x.filler - y.filler) || (x.w - y.w));
@@ -513,7 +674,7 @@
       }
 
       // worktop over non-tall stretches
-      const tallIv = mergeIntervals(segs.filter((g) => g.tall).map((g) => [g.s0, g.s1]));
+      const tallIv = mergeIntervals(segs.filter((g) => g.tall).map((g) => [g.s0, g.s1]).concat(voids.base));
       const back = run.freestanding ? -p.overhang : 0;
       const topRuns = gaps(run.counterStart, run.length, tallIv);
       for (const [a, b] of topRuns) {
@@ -548,6 +709,18 @@
         }
       }
 
+      // automatic window centred over a wall-run sink, narrowed to clear tall units and other openings
+      const sinkSeg = segs.find((g) => g.kind === 'sink');
+      if (p.windowOverSink && sinkSeg && !run.freestanding && wallById[run.wall]) {
+        const c = (sinkSeg.s0 + sinkSeg.s1) / 2;
+        const stops = mergeIntervals(segs.filter((g) => g.tall).map((g) => [g.s0, g.s1]).concat(voids.tall.map(([a, b]) => [a - 100, b + 100])));
+        let room = Math.min(c, run.length - c) - 50;
+        for (const [a, b] of stops) room = Math.min(room, b <= c ? c - b - 50 : a >= c ? a - c - 50 : 0);
+        const w = Math.floor(Math.min(p.windowW, 2 * room) / 10) * 10;
+        if (w >= 400) sinkWindow = { run: run.id, s: c, w };
+        else notes.push('Window over sink omitted: no clear wall beside the sink.');
+      }
+
       // wall cabinets
       if (p.wallCabs && !run.freestanding) {
         const blocked = segs.filter((g) => g.tall).map((g) => [g.s0, g.s1]);
@@ -556,11 +729,8 @@
           const c = (cook.s0 + cook.s1) / 2, hw = Math.max(600, cook.s1 - cook.s0);
           blocked.push([c - hw / 2, c + hw / 2]);
         }
-        const sink = segs.find((g) => g.kind === 'sink');
-        if (sink && p.windowOverSink) {
-          const c = (sink.s0 + sink.s1) / 2;
-          blocked.push([c - p.windowW / 2 - 50, c + p.windowW / 2 + 50]);
-        }
+        blocked.push(...voids.wall);
+        if (sinkWindow && sinkWindow.run === run.id) blocked.push([sinkWindow.s - sinkWindow.w / 2 - 50, sinkWindow.s + sinkWindow.w / 2 + 50]);
         const z0 = p.wallCabElev, z1 = p.wallCabElev + p.wallCabH, wcd = p.wallCabDepth;
         const wclip = {
           clipA: run.startCorner > 0 ? wcd + FT : undefined,
@@ -596,45 +766,35 @@
       }
     }
 
-    // ---- walls, door, window
-    const t = p.wallT;
-    const walls = [];
-    const wallDefs = {
-      back: [-t / 2, D + t / 2, W + t / 2, D + t / 2],
-      front: [-t / 2, -t / 2, W + t / 2, -t / 2],
-      left: [-t / 2, -t / 2, -t / 2, D + t / 2],
-      right: [W + t / 2, -t / 2, W + t / 2, D + t / 2],
-    };
-    const omitSides = p.layout === 'galley' && p.openEnds;
-    for (const [id, [x1, y1, x2, y2]] of Object.entries(wallDefs)) {
-      if (omitSides && (id === 'left' || id === 'right')) continue;
-      walls.push({ id, x1, y1, x2, y2, t, h: p.wallH });
-    }
-    const wallById = Object.fromEntries(walls.map((w) => [w.id, w]));
-    const openings = [];
-    const wallLen = (w) => Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
-    const project = (w, x, y) => {
-      const L = wallLen(w);
-      return ((x - w.x1) * (w.x2 - w.x1) + (y - w.y1) * (w.y2 - w.y1)) / L;
-    };
-
-    const doorWall = wallById[p.doorWall] || null;
-    if (doorWall) {
-      const inner = p.doorWall === 'back' || p.doorWall === 'front' ? W : D;
-      const pos = clamp(p.doorPos * inner, p.doorW / 2 + 100, inner - p.doorW / 2 - 100);
-      const offset = pos + t / 2; // all walls start at the outer corner (-t/2)
-      openings.push({ id: 'door-1', kind: 'door', wall: doorWall.id, offset: r1(offset), w: p.doorW, h: Math.min(p.doorH, p.wallH - 100), sill: 0 });
-    }
-    const sinkP = placed.sink;
-    if (p.windowOverSink && sinkP && !runs[sinkP.run].freestanding) {
-      const run = runs[sinkP.run];
-      const w = wallById[run.wall];
-      if (w) {
-        const [x, y] = at(run, sinkP.s, 0);
-        const sill = p.counterH + 150;
-        const h = Math.min(p.windowH, p.wallH - sill - 150);
-        if (h > 300) openings.push({ id: 'window-1', kind: 'window', wall: w.id, offset: r1(project(w, x, y)), w: p.windowW, h, sill });
+    // ---- automatic sink window, beams over thresholds, wall segments for Archicad
+    if (sinkWindow) {
+      const run = runs[sinkWindow.run], wall = run.wall;
+      const [x, y] = at(run, sinkWindow.s, 0);
+      const ac = wall === 'back' || wall === 'front' ? x : y;
+      const sill = p.counterH + 150;
+      const h = Math.min(p.windowH, p.wallH - sill - 150);
+      if (h > 300) {
+        const len = wall === 'back' || wall === 'front' ? W : D;
+        const a0 = ac - sinkWindow.w / 2;
+        openings.push({ id: 'W-sink', kind: 'window', wall, a0: r1(a0), a1: r1(a0 + sinkWindow.w), offset: r1(ac + t / 2), w: sinkWindow.w, h, sill,
+          from: 'start', fromStart: Math.round(a0), fromEnd: Math.round(len - a0 - sinkWindow.w), auto: true });
       }
+    }
+    const beams = [];
+    for (const o of openings.filter((x) => x.kind === 'threshold')) {
+      const w = wallById[o.wall];
+      const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1), ux = (w.x2 - w.x1) / len, uy = (w.y2 - w.y1) / len;
+      const d0 = Math.max(0, o.a0 + t / 2 - o.bearing), d1 = Math.min(len, o.a1 + t / 2 + o.bearing);
+      beams.push({ id: `B-${o.id}`, opening: o.id, wall: o.wall,
+        x1: r1(w.x1 + ux * d0), y1: r1(w.y1 + uy * d0), x2: r1(w.x1 + ux * d1), y2: r1(w.y1 + uy * d1),
+        w: o.beamW, d: o.beamD, z: p.wallH - o.beamD, top: p.wallH });
+    }
+    // Each wall is split at its thresholds: the pieces either side are walls, the
+    // beam spans the gap. Distances are measured from the wall's start point.
+    for (const w of walls) {
+      const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
+      const cuts = mergeIntervals(openings.filter((o) => o.wall === w.id && o.kind === 'threshold').map((o) => [o.a0 + t / 2, o.a1 + t / 2]));
+      w.segments = gaps(0, len, cuts).map(([a, b]) => [r1(a), r1(b)]);
     }
 
     // ---- work triangle (front-centre of each appliance)
@@ -654,7 +814,7 @@
     } : null;
     const triangle = { points: tri, legs, total: legs ? legs.sinkCook + legs.cookFridge + legs.fridgeSink : 0 };
 
-    const model = { version: 1, units: 'mm', params: p, assigned, runs: Object.values(runs).map(publicRun), walls, openings, boxes, triangle, notes };
+    const model = { version: 2, units: 'mm', params: p, assigned, runs: Object.values(runs).map(publicRun), walls, openings, beams, boxes, triangle, notes };
     model.checks = validate(model, runs, { cooktopLanding, sinkLanding });
     model.stats = stats(model);
     model.schedule = schedule(boxes);
@@ -736,22 +896,45 @@
       if (Math.max(l.left, l.right) < 600) add('warn', `Sink needs ≥ 600 mm of worktop on at least one side.`);
     }
 
-    // Door swing clashes with cabinets (axis-aligned footprints)
-    const door = model.openings.find((o) => o.kind === 'door');
-    if (door) {
-      const wall = model.walls.find((w) => w.id === door.wall);
-      const t = p.wallT;
-      const along = door.offset - t / 2; // distance from interior corner
-      let rect;
-      if (wall.id === 'front') rect = [along - door.w / 2, 0, along + door.w / 2, door.w];
-      if (wall.id === 'back') rect = [along - door.w / 2, D - door.w, along + door.w / 2, D];
-      if (wall.id === 'left') rect = [0, along - door.w / 2, door.w, along + door.w / 2];
-      if (wall.id === 'right') rect = [W - door.w, along - door.w / 2, W, along + door.w / 2];
-      const hit = model.boxes.filter((b) => ['base', 'corner', 'sinkBase', 'cookBase', 'dishwasher', 'fridge', 'pantry', 'filler'].includes(b.kind))
-        .find((b) => overlaps(rect, aabb(b)));
-      if (hit) add('error', `Door swing on ${wall.id} wall clashes with ${hit.label.toLowerCase()}.`);
-      else add('ok', 'Door swing is clear of cabinets.');
+    // Openings: overlaps, piers, headroom, and what stands in front of them
+    const solids = model.boxes.filter((b) => ['base', 'corner', 'sinkBase', 'cookBase', 'dishwasher', 'fridge', 'pantry', 'filler', 'counter'].includes(b.kind));
+    const byWall = {};
+    for (const o of model.openings) (byWall[o.wall] = byWall[o.wall] || []).push(o);
+    for (const list of Object.values(byWall)) {
+      list.sort((a, b) => a.a0 - b.a0);
+      for (let i = 1; i < list.length; i++) {
+        const gap = list[i].a0 - list[i - 1].a1;
+        if (gap < 0) add('error', `${list[i - 1].id} and ${list[i].id} overlap on the ${list[i].wall} wall.`);
+        else if (gap < 100) add('warn', `Only ${Math.round(gap)} mm of wall between ${list[i - 1].id} and ${list[i].id} (≥ 100 for a frame).`);
+      }
     }
+    const zone = (o, depth, inside) => { // rectangle in front of an opening, inside or outside the room
+      const [x0, y0] = wallPoint(o.wall, o.a0, p), [x1, y1] = wallPoint(o.wall, o.a1, p);
+      const d = inside ? depth : -depth;
+      if (o.wall === 'back') return [Math.min(x0, x1), Math.min(D - d, D), Math.max(x0, x1), Math.max(D - d, D)];
+      if (o.wall === 'front') return [Math.min(x0, x1), Math.min(0, d), Math.max(x0, x1), Math.max(0, d)];
+      if (o.wall === 'left') return [Math.min(0, d), Math.min(y0, y1), Math.max(0, d), Math.max(y0, y1)];
+      return [Math.min(W, W - d), Math.min(y0, y1), Math.max(W, W - d), Math.max(y0, y1)];
+    };
+    let doorsClear = true;
+    for (const o of model.openings) {
+      if (o.kind === 'door' && o.swing === 'in') {
+        const hit = solids.find((b) => b.kind !== 'counter' && overlaps(zone(o, o.w, true), aabb(b)));
+        if (hit) { add('error', `${o.id} swing clashes with ${hit.label.toLowerCase()}.`); doorsClear = false; }
+      }
+      if (o.kind === 'door' || o.kind === 'threshold') {
+        const hit = solids.find((b) => overlaps(zone(o, 600, true), aabb(b)));
+        if (hit && !(o.kind === 'door' && o.swing === 'in' && !doorsClear)) { add('error', `${o.id} passage is blocked by ${hit.label.toLowerCase()}.`); doorsClear = false; }
+        if (o.h < 2000) add('warn', `${o.id} clear height is ${o.h} mm (< 2000 headroom).`);
+      }
+      if (o.kind === 'threshold') add('ok', `${o.id}: ${o.w} mm passage, beam ${o.beamW}×${o.beamD} mm at ${o.h} mm.`);
+      if (o.kind === 'window') {
+        if (o.sill < p.counterH + 10 && !o.auto) add('warn', `${o.id} sill (${o.sill} mm) is below the worktop — no base units in front of it.`);
+        const tall = model.boxes.find((b) => (b.kind === 'fridge' || b.kind === 'pantry') && overlaps(zone(o, 700, true), aabb(b)));
+        if (tall) add('error', `${tall.label} stands in front of ${o.id}.`);
+      }
+    }
+    if (doorsClear && model.openings.some((o) => o.kind === 'door' || o.kind === 'threshold')) add('ok', 'Doors and passages are clear of cabinets.');
 
     if (model.boxes.some((b) => !Number.isFinite(b.cx + b.cy + b.L + b.D + b.H))) add('error', 'Invalid geometry generated.');
     return out;

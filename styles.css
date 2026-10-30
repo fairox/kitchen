@@ -85,6 +85,32 @@ select { width: 100%; padding: 5px 6px; border: 1px solid var(--line); border-ra
 .app-row .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 
+/* openings editor */
+.op-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.op-card { border: 1px solid var(--line); border-left: 3px solid var(--olive); border-radius: 8px; padding: 8px; background: #fcfbf9; }
+.op-card.op-window { border-left-color: #7fb0d6; }
+.op-card.op-threshold { border-left-color: var(--accent); }
+.op-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.op-head select { flex: 1; width: auto; padding: 3px 4px; }
+.op-tag { font: 600 10px/1 ui-monospace, monospace; background: var(--ink); color: #fff; border-radius: 4px; padding: 3px 5px; }
+.op-del { border: 0; background: none; color: var(--muted); font-size: 16px; padding: 0 4px; }
+.op-del:hover { color: var(--err); }
+.op-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.op-row .seg { flex: 1; }
+.op-row .seg button { text-transform: capitalize; padding: 3px 4px; }
+.op-lbl { color: var(--muted); font-size: 11px; min-width: 34px; }
+.op-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-bottom: 6px; }
+.op-num { display: flex; flex-direction: column; font-size: 11px; color: var(--muted); position: relative; }
+.op-num input { width: 100%; padding: 4px 22px 4px 5px; border: 1px solid var(--line); border-radius: 5px; font: inherit; font-size: 12px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.op-num input::-webkit-inner-spin-button { opacity: .4; }
+.op-num em { position: absolute; right: 5px; bottom: 5px; font-style: normal; font-size: 10px; color: var(--muted); pointer-events: none; }
+.op-readout { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.op-readout.bad { color: var(--warn); }
+.op-add { display: flex; gap: 6px; }
+.op-add button { flex: 1; border: 1px dashed #cfcac0; background: #fff; border-radius: 6px; padding: 5px 4px; font-size: 12px; }
+.op-add button:hover { border-color: var(--accent); color: var(--accent); }
+.hint { font-size: 11px; color: var(--muted); margin: 8px 0 0; }
+
 /* stage */
 .stage { position: relative; display: grid; grid-template-columns: 1fr 1fr; min-width: 0; min-height: 0; }
 .stage[data-view="3d"] { grid-template-columns: 1fr; }
