@@ -45,7 +45,7 @@ To build in Archicad, open a project in Archicad with Tapir installed, then clic
 | Room | width, depth, ceiling height, wall thickness, open ends (galley) |
 | Openings | any number of **doors**, **windows** and **thresholds**, each placed by wall, reference corner and exact offset (see below) |
 | Runs | left / right leg length, peninsula length and position, island length / offset, aisle to island, seating overhang, stool spacing |
-| Appliances | run and position for sink, cooktop and fridge; sink / cooktop / fridge widths; dishwasher left or right of the sink; window over sink |
+| Appliances | run and position for cooktop and fridge; **sink placement**: auto, centred under a chosen window (with a shift in mm), or exact (centre at a given mm from a chosen corner of its wall); sink / cooktop / fridge widths; dishwasher left or right of the sink |
 | Base cabinets | worktop height and thickness, base depth, plinth, max module width, door & drawer fronts on/off |
 | Wall & tall | wall units on/off, bottom height, unit height and depth, tall unit height, number of tall pantry units |
 | Finish | fronts, worktop, walls and floor colours, plus presets |
@@ -144,6 +144,21 @@ Example (also accepted in the URL hash and by `tools/export.js`):
   { "type": "window", "wall": "left", "from": "end", "offset": 1100, "width": 1200, "height": 1200, "sill": 1050 }
 ] }
 ```
+
+### Placing the sink exactly
+
+*Appliances → Sink placement*:
+- **Auto:** run and position slider. When the run's wall has a window, the sink is centred under the nearest one.
+- **Under window:** choose any window (it also picks the run on that window's wall) and an optional shift from the window centre in mm.
+- **Exact:** choose the run, the reference corner of its wall (named as seen in plan) and the distance from that corner to the sink centre in mm. On an island or peninsula it is measured from the run's ends.
+
+A sink placed this way is **pinned**: it is placed first and never snapped to the module grid, and the dishwasher, cabinets and other appliances are arranged around it:
+- **Dishwasher:** it swaps sides, or is left out with a note, rather than the sink moving.
+- **Impossible spots:** if the spot is in a door, a corner or past the run end, the sink moves the minimum distance and the panel and checks say by how much.
+- **Readout:** shows the sink centre's distance from both corners and which window it is under, from where it actually ended up. The plan dimensions it from the chosen corner.
+- **Cooktop:** it keeps its wall hood off windows. When the pinned sink leaves no window-free wall on its run, the cooktop moves to another run with a note.
+
+Switching to *Exact* or *Under window*, or changing the reference corner, keeps the sink where it is, so you can start from the automatic position and adjust.
 
 ### How runs are filled
 

@@ -50,6 +50,9 @@
 
     // Appliances (run id + position 0..1 along the usable run length)
     sinkRun: 'back', sinkPos: 0.75, sinkW: 900, dwSide: 'right',
+    // sinkMode: 'auto' (run + position), 'window' (centred under sinkWindow, shifted by sinkShift mm),
+    // 'exact' (centre at sinkOffset mm from the sinkFrom corner of the sink run's wall; island/peninsula: from the run start)
+    sinkMode: 'auto', sinkWindow: '', sinkShift: 0, sinkFrom: 'start', sinkOffset: 1500,
     cookRun: 'back', cookPos: 0.1, cookW: 600,
     fridgeRun: 'left', fridgePos: 1, fridgeW: 700,
     windowOverSink: true, windowW: 1200, windowH: 1100,
@@ -155,6 +158,9 @@
     p.tallNiche = clamp(p.tallNiche, 0, 3000);
     for (const k of ['styleBack', 'styleLeft', 'styleRight', 'styleFront']) if (!['standard', 'tall', 'base'].includes(p[k])) p[k] = 'standard';
     if (p.handles !== 'none') p.handles = 'bar';
+    if (!['auto', 'window', 'exact'].includes(p.sinkMode)) p.sinkMode = 'auto';
+    if (p.sinkFrom !== 'end') p.sinkFrom = 'start';
+    p.sinkWindow = typeof p.sinkWindow === 'string' ? p.sinkWindow : '';
     if (p.alignTops) { // tall and wall units finish at the ceiling, tops in one line
       p.tallH = p.wallH;
       p.wallCabH = p.wallH - p.wallCabElev;
@@ -376,14 +382,73 @@
   // thresholds and low windows, nearest stretch first; tall groups also avoid windows.
   function resolveItems(run, items, notes, baseVoids, tallVoids) {
     const lo0 = run.startCorner, hi0 = run.length - run.endCorner;
-    if (!baseVoids.length && !tallVoids.length) return packItems(run, items, notes, lo0, hi0, 0, run.length);
+    if (!baseVoids.length && !tallVoids.length && !items.some((it) => it.pin !== undefined)) return packItems(run, items, notes, lo0, hi0, 0, run.length);
     const free = gaps(0, run.length, baseVoids).map(([a, b]) => ({ a, b, lo: Math.max(a, lo0), hi: Math.min(b, hi0), items: [] }));
     free.forEach((f) => (f.cap = f.hi - f.lo));
     const tallFree = gaps(0, run.length, tallVoids);
     const out = [];
+    const split = (f, t0, t1) => { // cut a placed group out of its free stretch
+      const pieces = [[f.a, t0], [t1, f.b]].filter(([a, b]) => b - a > 1).map(([a, b]) => {
+        const g = { a, b, lo: Math.max(a, f.lo), hi: Math.min(b, f.hi), items: [] };
+        g.cap = g.hi - g.lo;
+        return g;
+      });
+      free.splice(free.indexOf(f), 1, ...pieces);
+      for (const it of f.items) { // anything already assigned to the stretch moves to the nearest piece
+        const g = pieces.reduce((m, x) => (Math.abs((x.lo + x.hi) / 2 - it.s) < Math.abs((m.lo + m.hi) / 2 - it.s) ? x : m), pieces[0]);
+        if (!g) { notes.push(`${run.label}: no room left for the ${it.key} — removed.`); continue; }
+        g.items.push(it);
+        g.cap -= it.w;
+      }
+    };
+    // pinned groups (a sink placed exactly) go exactly where asked, or as little away from it as the
+    // openings, corners and run ends allow; nothing is snapped to the module grid
+    for (const it of items.filter((x) => x.pin !== undefined)) {
+      const fit = (g) => {
+        let best = null;
+        for (const f of free) {
+          if (f.hi - f.lo < g.w - 1e-6) continue;
+          const s = clamp(g.s, f.lo + g.w / 2, f.hi - g.w / 2);
+          if (!best || Math.abs(s - g.s) < Math.abs(best.s - g.s)) best = { f, s };
+        }
+        return best;
+      };
+      let best = fit(it);
+      // the dishwasher may swap sides, or go, rather than the sink moving away from its place
+      if (it.parts.length > 1 && (!best || Math.abs(best.s - it.s) > 1)) {
+        const off = (parts) => parts.slice(0, parts.findIndex((q) => q.kind === it.pinKind)).reduce((a, q) => a + q.w, 0) + parts.find((q) => q.kind === it.pinKind).w / 2;
+        const swapped = it.parts.slice().reverse();
+        const alt = { w: it.w, s: it.pin - off(swapped) + it.w / 2 };
+        const altBest = fit(alt);
+        if (altBest && Math.abs(altBest.s - alt.s) <= 1) {
+          it.parts = swapped; it.s = alt.s; best = altBest;
+          notes.push({ level: 'ok', msg: `${run.label}: dishwasher moved to the other side of the sink to keep the sink where it was placed.` });
+        } else {
+          const only = it.parts.filter((q) => q.kind === it.pinKind);
+          const solo = { w: only[0].w, s: it.pin };
+          const soloBest = fit(solo);
+          if (soloBest && Math.abs(soloBest.s - solo.s) < Math.abs((best ? best.s : Infinity) - it.s)) {
+            notes.push(`${run.label}: no room for the dishwasher beside the sink at its placed position — removed.`);
+            it.parts = only; it.w = only[0].w; it.s = solo.s; best = soloBest;
+          }
+        }
+      }
+      if (!best) { notes.push(`${run.label}: the ${it.key} does not fit anywhere on this run — removed.`); continue; }
+      const moved = best.s - it.s;
+      if (Math.abs(moved) > 1) {
+        it.moved = Math.round(moved);
+        notes.push(`${run.label}: the ${it.key} was moved ${Math.abs(Math.round(moved))} mm to clear an opening, corner or the end of the run.`);
+      }
+      it.s = best.s;
+      out.push(it);
+      split(best.f, it.s - it.w / 2, it.s + it.w / 2);
+    }
+    items = items.filter((x) => x.pin === undefined);
     // tall groups first, each packed alone into its window-free zone; the stretch is then split around it
-    for (const it of items.slice().sort((x, y) => (y.parts.some((q) => q.tall) - x.parts.some((q) => q.tall)) || y.w - x.w)) {
-      const tall = it.parts.some((q) => q.tall);
+    const needsWall = (it) => it.parts.some((q) => q.tall) || !!it.avoidWindows;
+    for (const it of items.slice().sort((x, y) => (needsWall(y) - needsWall(x)) || y.w - x.w)) {
+      // tall units and a wall-hung hood both need wall without a window behind them
+      const tall = it.parts.some((q) => q.tall) || !!it.avoidWindows;
       let best = null, bestD = Infinity;
       // a tall group too wide for every window-free zone sheds its pantries first
       const widest = () => Math.max(0, ...free.map((f) => Math.max(0, ...tallFree.map(([a, b]) => Math.min(b, f.hi) - Math.max(a, f.lo)))));
@@ -419,10 +484,12 @@
         if (bestD === Infinity) notes.push(`${run.label}: openings leave too little room for the ${it.key}.`);
       }
       it.s = clamp(it.s, best.a + it.w / 2, Math.max(best.a + it.w / 2, best.b - it.w / 2));
-      if (tall && bestD !== Infinity) {
+      // real tall units are placed alone and cut the stretch; a cooktop only aims at a window-free zone
+      // and is packed with the rest, so it does not fragment the wall
+      if (it.parts.some((q) => q.tall) && bestD !== Infinity) {
         packItems(run, [it], notes, best.a, best.b, best.a, best.b);
         out.push(it);
-        const f = best.f, i = free.indexOf(f);
+        const f = best.f;
         // a leftover too narrow for a unit is wasted: slide flush to that end of the stretch instead
         const gl = it.s - it.w / 2 - f.lo, gr = f.hi - (it.s + it.w / 2);
         if (Math.min(gl, gr) < 600) {
@@ -430,13 +497,7 @@
           const s2 = toLeft ? f.lo + it.w / 2 : f.hi - it.w / 2;
           if (s2 - it.w / 2 >= best.a - 1e-6 && s2 + it.w / 2 <= best.b + 1e-6) it.s = s2;
         }
-        const t0 = it.s - it.w / 2, t1 = it.s + it.w / 2;
-        const pieces = [[f.a, t0], [t1, f.b]].filter(([a, b]) => b - a > 1).map(([a, b]) => {
-          const g = { a, b, lo: Math.max(a, f.lo), hi: Math.min(b, f.hi), items: [] };
-          g.cap = g.hi - g.lo;
-          return g;
-        });
-        free.splice(i, 1, ...pieces);
+        split(f, it.s - it.w / 2, it.s + it.w / 2);
         continue;
       }
       best.f.items.push(it);
@@ -656,18 +717,22 @@
 
     // Free wall per run after openings, claimed appliance by appliance, so an
     // appliance whose run is full moves to another run instead of being dropped.
+    // Kept as interval sets per run: `free` (no door, threshold or low window) and `wall` (free and
+    // no window either: room for a tall unit or a wall hood). A pinned sink removes its exact span.
     const capacity = {};
+    const cut = (ivs, a, b) => ivs.flatMap(([x, y]) => [[x, Math.min(y, a)], [Math.max(x, b), y]]).filter(([x, y]) => y - x > 1);
     const capOf = (id) => capacity[id] || (capacity[id] = (() => {
       const r = runs[id], v = runVoids(r);
-      const tall = gaps(r.startCorner, r.length - r.endCorner, v.tall);
-      return gaps(r.startCorner, r.length - r.endCorner, v.base).map(([a, b]) => ({
-        left: b - a, tallMax: Math.max(0, ...tall.map(([c, d]) => Math.min(b, d) - Math.max(a, c))),
-      }));
+      return { free: gaps(r.startCorner, r.length - r.endCorner, v.base), wall: gaps(r.startCorner, r.length - r.endCorner, v.tall) };
     })());
-    const claim = (id, w, tall) => {
-      const st = capOf(id).find((x) => x.left >= w - 1e-6 && (!tall || x.tallMax >= w - 1e-6));
-      if (st) st.left -= w;
-      return !!st;
+    const claimExact = (id, a, b) => { const c = capOf(id); c.free = cut(c.free, a, b); c.wall = cut(c.wall, a, b); };
+    const claim = (id, w, needWall) => {
+      const c = capOf(id);
+      const segs = needWall && !runs[id].freestanding
+        ? c.free.flatMap(([a, b]) => c.wall.map(([x, y]) => [Math.max(a, x), Math.min(b, y)])) : c.free;
+      const seg = segs.find(([a, b]) => b - a >= w - 1e-6);
+      if (seg) claimExact(id, seg[0], seg[0] + w);
+      return !!seg;
     };
     const chooseRun = (want, candidates, w, tall, name) => {
       if (claim(want, w, tall)) return want;
@@ -676,13 +741,36 @@
       notes.push(`${name} moved to the ${runs[alt].label.toLowerCase()} run: openings and other appliances leave no ${Math.round(w)} mm on the ${runs[want].label.toLowerCase()}.`);
       return alt;
     };
-    // order: the hardest to place first
-    const fRun = chooseRun(fridgeRun, wallRuns, p.fridgeW, true, 'Fridge');
     // a tall wall has no worktop, so the sink and cooktop go elsewhere
     const worktopRuns = runIds.filter((id) => runs[id].style !== 'tall');
     const sinkGroupW = p.sinkW + (p.dwSide !== 'none' ? 600 : 0);
-    const sRun = chooseRun(worktopRuns.includes(sinkRun) ? sinkRun : worktopRuns[0], worktopRuns, sinkGroupW, false, 'Sink');
-    const cRun = chooseRun(worktopRuns.includes(cookRun) ? cookRun : worktopRuns[0], worktopRuns, p.cookW, false, 'Cooktop');
+    // a sink placed under a chosen window or at an exact position decides its own run
+    let sinkPin = null; // { run, s (sink centre on the run), under }
+    if (p.sinkMode === 'window') {
+      const win = openings.find((o) => o.kind === 'window' && o.id === p.sinkWindow);
+      const run = win && Object.values(runs).find((r) => !r.freestanding && r.wall === win.wall);
+      if (!win) notes.push(`Sink: window ${p.sinkWindow || '(none chosen)'} not found — placed automatically.`);
+      else if (!run) notes.push(`Sink: the ${win.wall} wall has no cabinet run in this layout, so the sink cannot go under ${win.id} — placed automatically.`);
+      else {
+        if (win.sill < p.counterH - 10) notes.push(`Sink: ${win.id}'s sill (${win.sill} mm) is below the worktop.`);
+        sinkPin = { run: run.id, s: toS(run, ...wallPoint(win.wall, (win.a0 + win.a1) / 2 + p.sinkShift, p)), under: win.id };
+      }
+    } else if (p.sinkMode === 'exact') {
+      const run = runs[p.sinkRun] && runs[p.sinkRun].style !== 'tall' ? runs[p.sinkRun] : null;
+      if (!run) notes.push(`Sink: run ${p.sinkRun} is not available for a sink in this layout — placed automatically.`);
+      else if (run.freestanding) {
+        sinkPin = { run: run.id, s: p.sinkFrom === 'start' ? p.sinkOffset : run.length - p.sinkOffset };
+      } else {
+        const len = run.wall === 'back' || run.wall === 'front' ? W : D;
+        sinkPin = { run: run.id, s: toS(run, ...wallPoint(run.wall, p.sinkFrom === 'start' ? p.sinkOffset : len - p.sinkOffset, p)) };
+      }
+    }
+    if (sinkPin) claimExact(sinkPin.run, sinkPin.s - sinkGroupW / 2, sinkPin.s + sinkGroupW / 2);
+    // then the hardest to place: the fridge needs window-free wall
+    const fRun = chooseRun(fridgeRun, wallRuns, p.fridgeW, true, 'Fridge');
+    const sRun = sinkPin ? sinkPin.run : chooseRun(worktopRuns.includes(sinkRun) ? sinkRun : worktopRuns[0], worktopRuns, sinkGroupW, false, 'Sink');
+    // a cooktop on a wall run needs window-free wall for its hood
+    const cRun = chooseRun(worktopRuns.includes(cookRun) ? cookRun : worktopRuns[0], worktopRuns, p.cookW, true, 'Cooktop');
     const tallRuns = wallRuns.filter((id) => runs[id].style === 'tall');
     const oRun = p.ovenTowers ? chooseRun(wallRuns.includes(p.ovenRun) ? p.ovenRun : (tallRuns[0] || wallRuns[wallRuns.length - 1]),
       tallRuns.concat(wallRuns), 600 * p.ovenTowers, true, 'Oven tower') : null;
@@ -690,6 +778,7 @@
     // With "window over sink" the sink is centred under an existing window of its
     // wall when there is one; only an unfixed room gets a window added over the sink.
     let sinkUnder = null;
+    let sinkMoved = 0;
     {
       const run = runs[sRun];
       const parts = [{ kind: 'sink', w: p.sinkW }];
@@ -699,21 +788,27 @@
         else parts.unshift({ kind: 'dishwasher', w: 600 });
       }
       const w = parts.reduce((a, q) => a + q.w, 0);
+      const sinkOff = parts.slice(0, parts.findIndex((q) => q.kind === 'sink')).reduce((a, q) => a + q.w, 0) + p.sinkW / 2;
       let sc = posOf(run, p.sinkPos, w);
-      const wins = p.windowOverSink && !run.freestanding
+      if (sinkPin) {
+        itemsByRun[sRun].push({ key: 'sink', parts, w, s: sinkPin.s - sinkOff + w / 2, pin: sinkPin.s, pinKind: 'sink' });
+        sinkUnder = sinkPin.under || null;
+      }
+      const wins = !sinkPin && p.windowOverSink && !run.freestanding
         ? openings.filter((o) => o.kind === 'window' && o.wall === run.wall && o.sill >= p.counterH - 10) : [];
       if (wins.length) {
         const sOf = (o) => toS(run, ...wallPoint(o.wall, (o.a0 + o.a1) / 2, p));
         const win = wins.reduce((m, o) => (Math.abs(sOf(o) - sc) < Math.abs(sOf(m) - sc) ? o : m), wins[0]);
-        const sinkOff = parts.slice(0, parts.findIndex((q) => q.kind === 'sink')).reduce((a, q) => a + q.w, 0) + p.sinkW / 2;
         sc = sOf(win) - sinkOff + w / 2;
+        // aimed at a window on purpose: placed first, exactly under it, everything else around it
+        itemsByRun[sRun].push({ key: 'sink', parts, w, s: sc, pin: sOf(win), pinKind: 'sink' });
         sinkUnder = win.id;
-      }
-      itemsByRun[sRun].push({ key: 'sink', parts, w, s: sc });
+      } else if (!sinkPin) itemsByRun[sRun].push({ key: 'sink', parts, w, s: sc });
     }
     {
       const run = runs[cRun];
-      itemsByRun[cRun].push({ key: 'cook', parts: [{ kind: 'cooktop', w: p.cookW }], w: p.cookW, landing: 300, s: posOf(run, p.cookPos, p.cookW, 300) });
+      itemsByRun[cRun].push({ key: 'cook', parts: [{ kind: 'cooktop', w: p.cookW }], w: p.cookW, landing: 300, avoidWindows: !run.freestanding,
+        s: posOf(run, p.cookPos, p.cookW, 300) });
     }
     if (oRun) {
       const parts = Array.from({ length: p.ovenTowers }, () => ({ kind: 'ovenTower', w: 600, tall: true }));
@@ -747,6 +842,8 @@
       const run = runs[id];
       const voids = runVoids(run);
       const items = resolveItems(run, itemsByRun[id], notes, voids.base, voids.tall);
+      const sinkItem = items.find((it) => it.key === 'sink');
+      if (sinkItem && sinkItem.moved) sinkMoved = sinkItem.moved;
 
       // expand groups into concrete segments
       const segs = [];
@@ -933,7 +1030,7 @@
 
       // automatic window centred over a wall-run sink, narrowed to clear tall units and other openings
       const sinkSeg = segs.find((g) => g.kind === 'sink');
-      if (p.windowOverSink && !p.siteFixed && !sinkUnder && sinkSeg && !run.freestanding && wallById[run.wall]) {
+      if (p.sinkMode === 'auto' && p.windowOverSink && !p.siteFixed && !sinkUnder && sinkSeg && !run.freestanding && wallById[run.wall]) {
         const c = (sinkSeg.s0 + sinkSeg.s1) / 2;
         const stops = mergeIntervals(segs.filter((g) => g.tall).map((g) => [g.s0, g.s1]).concat(voids.tall.map(([a, b]) => [a - 100, b + 100])));
         let room = Math.min(c, run.length - c) - 50;
@@ -1044,7 +1141,28 @@
     } : null;
     const triangle = { points: tri, legs, total: legs ? legs.sinkCook + legs.cookFridge + legs.fridgeSink : 0 };
 
-    const model = { version: 2, units: 'mm', params: p, assigned, sinkUnder, runs: Object.values(runs).map(publicRun), walls, openings, beams, boxes, triangle, notes };
+    // where the sink really is: centre along its wall from both corners (island/peninsula: from the run ends)
+    let sinkPlacement = null;
+    if (placed.sink) {
+      const run = runs[placed.sink.run];
+      const [x, y] = at(run, placed.sink.s, 0);
+      // "under" is decided from where the sink really ended up, not from where it was aimed
+      sinkUnder = null;
+      if (!run.freestanding) {
+        const a = run.wall === 'back' || run.wall === 'front' ? x : y;
+        const win = openings.find((o) => o.kind === 'window' && o.wall === run.wall && a >= o.a0 && a <= o.a1);
+        if (win) sinkUnder = win.id;
+      }
+      if (run.freestanding) {
+        sinkPlacement = { run: run.id, wall: null, fromStart: Math.round(placed.sink.s), fromEnd: Math.round(run.length - placed.sink.s) };
+      } else {
+        const len = run.wall === 'back' || run.wall === 'front' ? W : D;
+        const a = run.wall === 'back' || run.wall === 'front' ? x : y;
+        sinkPlacement = { run: run.id, wall: run.wall, fromStart: Math.round(a), fromEnd: Math.round(len - a) };
+      }
+      Object.assign(sinkPlacement, { under: sinkUnder, moved: sinkMoved, mode: p.sinkMode, width: placed.sink.w });
+    }
+    const model = { version: 2, units: 'mm', params: p, assigned, sinkUnder, sinkPlacement, runs: Object.values(runs).map(publicRun), walls, openings, beams, boxes, triangle, notes };
     model.checks = validate(model, runs, { cooktopLanding, sinkLanding });
     model.stats = stats(model);
     model.schedule = schedule(boxes);
@@ -1160,6 +1278,11 @@
       }
     }
     if (model.sinkUnder) add('ok', `Sink centred under ${model.sinkUnder}.`);
+    for (const h of model.boxes.filter((b) => b.kind === 'hood' && b.label === 'Hood')) { // wall-hung hood in front of a window
+      const hb = aabb(h);
+      const win = model.openings.find((o) => o.kind === 'window' && overlaps(zone(o, 520), hb) && o.sill + o.h > h.z);
+      if (win) add('warn', `The cooktop hood stands in front of ${win.id}.`);
+    }
     const walled = model.walls.length === 4;
     if (walled && !model.openings.some((o) => o.kind === 'door' || o.kind === 'threshold')) {
       add('warn', 'The room has no door or passage — add the entry in Openings so the cabinets keep it clear.');

@@ -92,6 +92,28 @@ for (const c of cases) {
   if (c.island) m.checks.filter((x) => x.level === 'error').forEach((x) => fail(`fitted island: ${x.msg}`));
 }
 
+// Sink placed exactly: under a chosen window (with a shift) or at an exact distance from a corner
+{
+  const base = Object.assign({ layout: 'u-shape' }, G.LAYOUTS['u-shape'].defaults, { island: false, openings: [
+    { type: 'door', wall: 'front', from: 'start', offset: 1550, width: 900 },
+    { type: 'window', wall: 'back', from: 'start', offset: 600, width: 1000, sill: 1050 },
+    { type: 'window', wall: 'left', from: 'start', offset: 1200, width: 900, sill: 1050 }] });
+  const expect = (o, want, tag) => {
+    const m = G.generate(Object.assign({}, base, o));
+    const sp = m.sinkPlacement;
+    if (!sp) return fail(`${tag}: no sink`);
+    for (const [k, v] of Object.entries(want)) if (sp[k] !== v) fail(`${tag}: ${k} = ${sp[k]}, expected ${v}`);
+    m.checks.filter((c) => /hood stands in front/.test(c.msg)).forEach((c) => fail(`${tag}: ${c.msg}`));
+  };
+  expect({ sinkMode: 'window', sinkWindow: 'W2' }, { wall: 'back', fromStart: 1100, under: 'W2', moved: 0 }, 'sink under W2');
+  expect({ sinkMode: 'window', sinkWindow: 'W3', sinkShift: -150 }, { wall: 'left', fromStart: 1500, under: 'W3', moved: 0 }, 'sink under W3 -150');
+  expect({ sinkMode: 'exact', sinkRun: 'back', sinkFrom: 'start', sinkOffset: 2345 }, { wall: 'back', fromStart: 2345, moved: 0 }, 'sink exact 2345');
+  expect({ sinkMode: 'exact', sinkRun: 'back', sinkFrom: 'end', sinkOffset: 1655 }, { wall: 'back', fromStart: 2345, moved: 0 }, 'sink exact from end');
+  expect({ sinkMode: 'auto' }, { under: 'W2' }, 'auto sink under the back window');
+  const corner = G.generate(Object.assign({}, base, { sinkMode: 'exact', sinkRun: 'back', sinkFrom: 'start', sinkOffset: 100 }));
+  if (!corner.sinkPlacement.moved) fail('sink asked into the corner was not reported as moved');
+}
+
 // A window right at a corner, next to a tall wall: no tall unit may stand across it, and no false alarm
 for (const layout of ['l-shape', 'u-shape', 'four-wall']) {
   const m = G.generate(Object.assign({ layout }, G.LAYOUTS[layout].defaults, { island: false, roomW: 5754, roomD: 4704, styleLeft: 'tall', styleRight: 'tall',

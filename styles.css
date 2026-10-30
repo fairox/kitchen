@@ -121,6 +121,8 @@ select { width: 100%; padding: 5px 6px; border: 1px solid var(--line); border-ra
 .op-num em { position: absolute; right: 5px; bottom: 5px; font-style: normal; font-size: 10px; color: var(--muted); pointer-events: none; }
 .op-readout { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .op-readout.bad { color: var(--warn); }
+.sink-readout { margin: -4px 0 10px; }
+.field-head input.num.wide { width: 90px; border-color: var(--line); color: var(--ink); }
 .op-add { display: flex; gap: 6px; }
 .op-add button { flex: 1; border: 1px dashed #cfcac0; background: #fff; border-radius: 6px; padding: 5px 4px; font-size: 12px; }
 .op-add button:hover { border-color: var(--accent); color: var(--accent); }

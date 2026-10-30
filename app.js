@@ -164,6 +164,12 @@
       wrap.innerHTML = `<div class="field-head"><label>${f.label}</label></div><div class="seg">${f.options.map(([v, l]) => `<button data-v="${v}">${l}</button>`).join('')}</div>`;
       $$('button', wrap).forEach((b) => b.addEventListener('click', () => set(f.key, b.dataset.v)));
       entry.sync = () => $$('button', wrap).forEach((b) => b.classList.toggle('active', String(params[f.key]) === b.dataset.v));
+    } else if (f.type === 'number') {
+      wrap.innerHTML = `<div class="field-head"><label>${f.label}</label><span><input class="num wide" type="number" step="${f.step || 1}"> <span class="muted">${f.unit || ''}</span></span></div>`;
+      const num = $('input', wrap);
+      num.addEventListener('change', () => set(f.key, Number(num.value)));
+      num.addEventListener('keydown', (e) => { if (e.key === 'Enter') num.blur(); });
+      entry.sync = () => { if (document.activeElement !== num) num.value = params[f.key]; };
     } else if (f.type === 'select') {
       wrap.innerHTML = `<div class="field-head"><label>${f.label}</label></div><select></select>`;
       const sel = $('select', wrap);
@@ -210,6 +216,7 @@
       sel.style.margin = 0;
       head.appendChild(sel);
       d.appendChild(head);
+      if (r.run === 'sinkRun') { buildSinkPlacement(d, head, sel); continue; }
       d.appendChild(buildField({ key: r.pos, label: `${r.name} position`, min: 0, max: 1, step: 0.01, unit: '%' }));
     }
     d.appendChild(buildField({ key: 'sinkW', label: 'Sink unit', type: 'seg', options: [['600', '600'], ['800', '800'], ['900', '900'], ['1000', '1000']] }));
@@ -362,6 +369,44 @@
     return card;
   }
 
+  // Sink placement: automatic, centred under a chosen window (with a shift), or at an exact distance
+  // from a corner of its wall. The readout shows where the sink really ended up.
+  const windowsOf = () => (model ? model.openings.filter((o) => o.kind === 'window' && !o.auto) : []);
+  const runWall = (id) => (model && (model.runs.find((r) => r.id === id) || {}).wall) || null;
+  function buildSinkPlacement(d, head, runSel) {
+    const runEntry = fieldEls[fieldEls.length - 1];
+    runEntry.f.show = (p) => p.sinkMode !== 'window';
+    const add = (f) => d.appendChild(buildField(f));
+    add({ key: 'sinkMode', label: 'Sink placement', type: 'seg', options: [['auto', 'Auto'], ['window', 'Under window'], ['exact', 'Exact']] });
+    add({ key: 'sinkPos', label: 'Sink position', min: 0, max: 1, step: 0.01, unit: '%', show: (p) => p.sinkMode === 'auto' });
+    add({ key: 'sinkWindow', label: 'Centre under', type: 'select', show: (p) => p.sinkMode === 'window',
+      options: () => {
+        const w = windowsOf();
+        return w.length ? w.map((o) => [o.id, `${o.id} · ${o.wall} wall · ${o.w} wide, ${o.fromStart} mm from the ${cornerNames(o.wall)[0]} corner`])
+          : [['', 'No windows yet: add one in Openings']];
+      } });
+    add({ key: 'sinkShift', label: 'Shift from the window centre', type: 'number', step: 10, unit: 'mm', show: (p) => p.sinkMode === 'window' });
+    add({ key: 'sinkFrom', label: 'Measured from', type: 'select', show: (p) => p.sinkMode === 'exact',
+      options: (p) => {
+        const wall = runWall(p.sinkRun);
+        if (!wall) return [['start', 'start of the run'], ['end', 'end of the run']];
+        const [c0, c1] = cornerNames(wall);
+        return [['start', `${c0} corner of the ${wall} wall`], ['end', `${c1} corner of the ${wall} wall`]];
+      } });
+    add({ key: 'sinkOffset', label: 'Sink centre from that corner', type: 'number', step: 10, unit: 'mm', show: (p) => p.sinkMode === 'exact' });
+    const ro = document.createElement('div');
+    ro.className = 'op-readout sink-readout';
+    d.appendChild(ro);
+    fieldEls.push({ f: { key: 'sinkReadout' }, wrap: ro, sync: () => {
+      const sp = model && model.sinkPlacement;
+      if (!sp) { ro.textContent = ''; return; }
+      const names = sp.wall ? cornerNames(sp.wall) : ['start', 'end'];
+      ro.classList.toggle('bad', !!sp.moved);
+      ro.textContent = `Sink centre ${sp.fromStart} mm from the ${names[0]}${sp.wall ? ' corner' : ''} · ${sp.fromEnd} mm from the ${names[1]}${sp.wall ? ' corner' : ''}`
+        + (sp.under ? ` · under ${sp.under}` : '') + (sp.moved ? ` · moved ${Math.abs(sp.moved)} mm from where it was asked` : '');
+    } });
+  }
+
   function buildFinish(d) {
     const pre = document.createElement('div');
     pre.className = 'seg presets';
@@ -441,6 +486,19 @@
   // ------------------------------------------------------------------ mutations
   function set(key, value) {
     if (typeof G.DEFAULTS[key] === 'number') value = Number(value);
+    if (key === 'sinkMode' && model && model.sinkPlacement) { // start from where the sink is now
+      const sp = model.sinkPlacement;
+      if (value === 'exact') Object.assign(params, { sinkRun: sp.run, sinkFrom: 'start', sinkOffset: sp.fromStart });
+      if (value === 'window') {
+        const wins = windowsOf();
+        if (!wins.some((o) => o.id === params.sinkWindow)) params.sinkWindow = (wins.find((o) => o.id === sp.under) || wins[0] || {}).id || '';
+        params.sinkShift = 0;
+      }
+    }
+    if (key === 'sinkFrom' && model && model.sinkPlacement && value !== params.sinkFrom) { // same spot, other corner
+      const sp = model.sinkPlacement;
+      params.sinkOffset = value === 'start' ? sp.fromStart : sp.fromEnd;
+    }
     params[key] = value;
     if (G.ROOM_KEYS.includes(key)) fixSite();
     refresh();

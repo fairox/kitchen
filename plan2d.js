@@ -310,6 +310,15 @@
   function drawDims(ctx, model, v) {
     const p = model.params, bd = p.baseDepth, W = p.roomW, D = p.roomD, t = p.wallT;
     drawOpeningChains(ctx, model, v);
+    // a pinned sink: its centre dimensioned from the reference corner, just in front of the run
+    const sp = model.sinkPlacement;
+    if (sp && sp.wall && p.sinkMode !== 'auto') {
+      const i = bd + 260, from = p.sinkFrom === 'end' && p.sinkMode === 'exact';
+      const len = sp.wall === 'back' || sp.wall === 'front' ? W : D, a = sp.fromStart;
+      const pt = (q) => (sp.wall === 'back' ? [q, D - i] : sp.wall === 'front' ? [q, i] : sp.wall === 'left' ? [i, q] : [W - i, q]);
+      const [x1, y1] = pt(from ? len : 0), [x2, y2] = pt(a);
+      dimLine(ctx, v, x1, y1, x2, y2, 0, `sink ${from ? sp.fromEnd : sp.fromStart}`);
+    }
     dimLine(ctx, v, 0, D + t, W, D + t, 420, `${W}`);
     dimLine(ctx, v, -t, 0, -t, D, 420, `${D}`);
     const R = Object.fromEntries(model.runs.map((r) => [r.id, r]));
