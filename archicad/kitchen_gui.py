@@ -341,10 +341,11 @@ class KitchenWindow:
     def _refresh_modes(self):
         pj = (self.status_info or {}).get("project") or {}
         prev = B.previous_build(pj) if pj.get("token") else None
-        opts = ([f"Replace previous build {prev['runId']} ({prev['count']} elements, {prev.get('layout') or 'kitchen'})"] if prev else []) + ["Append a new build"]
+        state = "" if not prev or prev["status"] == "verified" else ", built with problems"
+        opts = ([f"Replace previous build {prev['runId']} ({prev['count']} elements, {prev.get('layout') or 'kitchen'}{state})"] if prev else []) + ["Append a new build"]
         self.mode_box.configure(values=opts)
         want = (self.settings or {}).get("mode", "replace")
-        self.mode.set(opts[0] if (prev and want == "replace") else opts[-1])
+        self.mode.set(opts[0] if (prev and (want == "replace" or prev["status"] != "verified")) else opts[-1])
 
     def from_zone(self):
         if not self.status_info:

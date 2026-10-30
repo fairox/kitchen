@@ -92,6 +92,15 @@ for (const c of cases) {
   if (c.island) m.checks.filter((x) => x.level === 'error').forEach((x) => fail(`fitted island: ${x.msg}`));
 }
 
+// A window right at a corner, next to a tall wall: no tall unit may stand across it, and no false alarm
+for (const layout of ['l-shape', 'u-shape', 'four-wall']) {
+  const m = G.generate(Object.assign({ layout }, G.LAYOUTS[layout].defaults, { island: false, roomW: 5754, roomD: 4704, styleLeft: 'tall', styleRight: 'tall',
+    openings: [{ type: 'door', wall: 'front', from: 'start', offset: 2000, width: 900 },
+      { type: 'window', wall: 'back', from: 'start', offset: 100, width: 1200, sill: 1050 },
+      { type: 'window', wall: 'back', from: 'end', offset: 300, width: 1000, sill: 1050 }] }));
+  m.checks.filter((c) => c.level === 'error').forEach((c) => fail(`corner window ${layout}: ${c.msg}`));
+}
+
 // A fixed site: every layout keeps the room and openings exactly, nothing blocks a door or passage,
 // and the island is fitted inside the room or refused, never by resizing the room.
 const sites = [

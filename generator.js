@@ -606,8 +606,12 @@
       }
       // runs on the other walls (and peninsulas) stop short of door swings and passages
       for (const o of openings) {
-        if (o.kind === 'window' || o.wall === run.wall || run.id === 'island') continue; // an island is moved, not split
-        const z = clearZone(o, p);
+        if (o.wall === run.wall || run.id === 'island') continue; // an island is moved, not split
+        // windows: only the cabinet-depth band in front of them (a corner unit of the next run); doors: the swing
+        const d = bd - 1;
+        const z = o.kind !== 'window' ? clearZone(o, p)
+          : o.wall === 'back' ? [o.a0, D - d, o.a1, D] : o.wall === 'front' ? [o.a0, 0, o.a1, d]
+            : o.wall === 'left' ? [0, o.a0, d, o.a1] : [W - d, o.a0, W, o.a1];
         const tb = run.freestanding ? -p.overhang : 0;
         const corners = [at(run, 0, tb), at(run, run.length, tb), at(run, 0, bd + p.nosing), at(run, run.length, bd + p.nosing)];
         const fx0 = Math.min(...corners.map((c) => c[0])), fx1 = Math.max(...corners.map((c) => c[0]));
@@ -617,6 +621,11 @@
         const ss = [[ix0, iy0], [ix1, iy0], [ix0, iy1], [ix1, iy1]].map(([x, y]) => toS(run, x, y));
         const iv = [Math.max(0, Math.min(...ss)), Math.min(run.length, Math.max(...ss))];
         if (iv[1] - iv[0] < 1) continue;
+        if (o.kind === 'window') {
+          if (o.sill < p.counterH + 10) v.base.push(iv);
+          v.tall.push(iv); v.wall.push(iv);
+          continue;
+        }
         v.base.push(iv); v.tall.push(iv); v.wall.push(iv);
         notes.push({ level: 'ok', msg: `${run.label} run kept clear of ${o.id}'s ${o.kind === 'door' && o.swing === 'in' ? 'door swing' : 'passage'}.` });
       }
@@ -1145,7 +1154,8 @@
       if (o.kind === 'threshold') add('ok', `${o.id}: ${o.w} mm passage, beam ${o.beamW}×${o.beamD} mm at ${o.h} mm.`);
       if (o.kind === 'window') {
         if (o.sill < p.counterH + 10 && !o.auto) add('warn', `${o.id} sill (${o.sill} mm) is below the worktop — no base units in front of it.`);
-        const tall = model.boxes.find((b) => (b.kind === 'fridge' || b.kind === 'pantry') && overlaps(zone(o, 700), aabb(b)));
+        // a tall unit within cabinet depth of the window wall, across the window, really blocks it
+        const tall = model.boxes.find((b) => (b.kind === 'fridge' || b.kind === 'pantry') && overlaps(zone(o, bd - 1), aabb(b)));
         if (tall) add('error', `${tall.label} stands in front of ${o.id}.`);
       }
     }

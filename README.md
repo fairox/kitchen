@@ -89,7 +89,7 @@ The Archicad side works like the Parkform builder. The **browser never connects 
    - **Test placement:** places one element of each kind, verifies it and deletes it.
    - **Build in Archicad:** builds after a confirmation.
 4. Every element is **verified by read-back**: type, story, layer and 3D bounding box.
-   - **Replace** runs only after the new build is verified, in the same identified project. It deletes only the previous build's elements that are still exactly as built; anything you moved, edited or put on another layer is kept.
+   - **Replace** runs only after the new build is verified, in the same identified project. It deletes only the previous build's elements that are still exactly as built; anything you moved, edited or put on another layer is kept. A previous run that was *built with problems* can be replaced too, which is how a faulty build is cleaned up.
    - **The project** is identified by a token in an app-owned *Kitchen Configurator* classification system, plus the project path.
    - **Every run is journalled** in `Documents/Kitchen Configurator/journal`. Use `--builds` to list runs and `--remove RUN_ID` to recover.
 
@@ -215,7 +215,7 @@ The payloads follow Tapir's published command definitions (v1.7.3). Older Tapir 
 
 - Cabinets are **morph boxes**, not GDL kitchen objects. That keeps the geometry exact and independent of the library. To use parametric kitchen objects, map `boxes[]` to `CreateObjects` with your library part names.
 - Doors and windows use the tool defaults or favourites from your Archicad, sized by the model.
-- The live Archicad connection has only been exercised against a mock of the JSON API. Run **Test placement** in your own Archicad before the first full build.
+- First real run, Archicad 29 with Tapir 1.7.0: walls, doors, windows and every box square to the project axes are placed exactly. Morphs given rotated axes come out turned the opposite way: Archicad reads the axes as rows of the placement matrix, not columns. So boxes square to the axes (every build at 0°, 90°, 180° or 270°) are now sent as their plain extent with no rotation. For other angles the script first places a 30° probe morph, reads it back and uses the convention it measures. Run **Test placement** once after installing or updating Tapir.
 
 ## Files
 

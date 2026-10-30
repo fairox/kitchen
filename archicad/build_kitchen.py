@@ -310,9 +310,13 @@ def list_builds():
     return out
 
 
+REPLACEABLE = ("verified", "created-with-problems")
+
+
 def previous_build(ident):
-    """The newest verified run in this identified project, if any."""
-    return next((b for b in list_builds() if b["status"] == "verified" and b.get("project") and same_project(b["project"], ident)[0]), None)
+    """The newest replaceable run in this identified project, if any. A run 'created with problems' can be
+    replaced too: its elements are still deleted only when they are exactly as that run built them."""
+    return next((b for b in list_builds() if b["status"] in REPLACEABLE and b.get("project") and same_project(b["project"], ident)[0]), None)
 
 
 # ----------------------------------------------------------------------------- payloads
@@ -320,20 +324,69 @@ def previous_build(ident):
 MM = 0.001
 
 
-def morph_payload(b: dict, z_base: float) -> dict:
-    """Oriented box -> Tapir CreateMorphs item. Archicad works in metres."""
+def axis_aligned(b: dict) -> bool:
+    return abs(abs(b["ux"]) - 1) < 1e-6 or abs(abs(b["uy"]) - 1) < 1e-6
+
+
+def morph_payload(b: dict, z_base: float, convention: str = "columns") -> dict:
+    """Oriented box -> Tapir CreateMorphs item (metres).
+
+    A box square to the project axes is sent as its plain extent with identity axes, so the result
+    does not depend on how the axes are read. Archicad 29 / Tapir 1.7.0 turned boxes given with
+    rotated axes the opposite way (the axes act as rows of the placement matrix, not columns), so
+    other angles use the convention measured by probe_morph_convention().
+    """
+    L, D, H = b["L"], b["D"], b["H"]
+    z = {"z": z_base + b["z"] * MM}
+    ident = {"xAxis": {"x": 1.0, "y": 0.0, "z": 0.0}, "yAxis": {"x": 0.0, "y": 1.0, "z": 0.0}, "zAxis": {"x": 0.0, "y": 0.0, "z": 1.0}}
+    if axis_aligned(b):
+        sx = abs(b["ux"]) * L + abs(b["nx"]) * D
+        sy = abs(b["uy"]) * L + abs(b["ny"]) * D
+        return dict({"basePoint": dict({"x": (b["cx"] - sx / 2) * MM, "y": (b["cy"] - sy / 2) * MM}, **z),
+                     "size": {"x": sx * MM, "y": sy * MM, "z": H * MM}}, **ident)
     ux, uy = b["ux"], b["uy"]
     vx, vy = -uy, ux  # local y axis, 90 deg CCW from u (right-handed with z up)
-    L, D, H = b["L"], b["D"], b["H"]
     x0 = b["cx"] - ux * L / 2 - vx * D / 2
     y0 = b["cy"] - uy * L / 2 - vy * D / 2
-    return {
-        "basePoint": {"x": x0 * MM, "y": y0 * MM, "z": z_base + b["z"] * MM},
-        "size": {"x": L * MM, "y": D * MM, "z": H * MM},
-        "xAxis": {"x": ux, "y": uy, "z": 0.0},
-        "yAxis": {"x": vx, "y": vy, "z": 0.0},
-        "zAxis": {"x": 0.0, "y": 0.0, "z": 1.0},
-    }
+    if convention == "rows":  # send the transpose, so the effective columns are (u, v)
+        xa, ya = {"x": ux, "y": vx, "z": 0.0}, {"x": uy, "y": vy, "z": 0.0}
+    else:
+        xa, ya = {"x": ux, "y": uy, "z": 0.0}, {"x": vx, "y": vy, "z": 0.0}
+    return {"basePoint": dict({"x": x0 * MM, "y": y0 * MM}, **z), "size": {"x": L * MM, "y": D * MM, "z": H * MM},
+            "xAxis": xa, "yAxis": ya, "zAxis": {"x": 0.0, "y": 0.0, "z": 1.0}}
+
+
+def probe_morph_convention(ac, z_base: float, log) -> str:
+    """Place one 30-degree probe morph, read its extent back, delete it: 'columns' or 'rows'."""
+    if getattr(ac, "_morph_convention", None):
+        return ac._morph_convention
+    a = math.radians(30)
+    probe = {"cx": 0.0, "cy": 0.0, "z": 0.0, "L": 1000.0, "D": 100.0, "H": 100.0,
+             "ux": math.cos(a), "uy": math.sin(a), "nx": -math.sin(a), "ny": math.cos(a)}
+    want = expected_aabb(probe, z_base)
+    res = ac.tapir("CreateMorphs", {"morphsData": [morph_payload(probe, z_base, "columns")]})
+    g = (guids_of(res)[0] or [None])[0]
+    if not g:
+        raise ArchicadError("The orientation probe morph could not be created.")
+    try:
+        bb = (ac.tapir("Get3DBoundingBoxes", {"elements": [{"elementId": {"guid": g}}]}).get("boundingBoxes3D") or [{}])[0].get("boundingBox3D")
+    finally:
+        ac.tapir("DeleteElements", {"elements": [{"elementId": {"guid": g}}]})
+    if not bb:
+        raise ArchicadError("The orientation probe morph could not be read back.")
+    got = (bb["xMin"], bb["yMin"], bb["zMin"], bb["xMax"], bb["yMax"], bb["zMax"])
+    flipped = dict(probe, ux=math.cos(-a), uy=math.sin(-a), nx=-math.sin(-a), ny=math.cos(-a))
+    # under the 'rows' reading the probe turns -30 degrees about its base corner
+    c0x, c0y = probe["cx"] - probe["ux"] * 500 - probe["nx"] * 50, probe["cy"] - probe["uy"] * 500 - probe["ny"] * 50
+    flipped["cx"], flipped["cy"] = c0x + flipped["ux"] * 500 + flipped["nx"] * 50, c0y + flipped["uy"] * 500 + flipped["ny"] * 50
+    dev = lambda e: max(abs(x - y) for x, y in zip(got, e))  # noqa: E731
+    d_cols, d_rows = dev(want), dev(expected_aabb(flipped, z_base))
+    if min(d_cols, d_rows) > XY_TOL * 2:
+        raise ArchicadError(f"Rotated morphs do not land where expected in this Archicad (probe off by {min(d_cols, d_rows) * 1000:.0f} mm). "
+                            "Use a rotation that is a multiple of 90 degrees.")
+    ac._morph_convention = "columns" if d_cols <= d_rows else "rows"
+    log(f"  Rotated morph axes measured: {ac._morph_convention} convention")
+    return ac._morph_convention
 
 
 def wall_segments(model: dict) -> list:
@@ -555,8 +608,9 @@ def create_beams(ac: Archicad, model: dict, z_base: float, floor_index: int, log
 
 def create_morphs(ac: Archicad, boxes: list, z_base: float, log) -> list:
     guids = []
+    conv = probe_morph_convention(ac, z_base, log) if any(not axis_aligned(b) for b in boxes) else "columns"
     for part in chunks(boxes, BATCH):
-        res = ac.tapir("CreateMorphs", {"morphsData": [morph_payload(b, z_base) for b in part]})
+        res = ac.tapir("CreateMorphs", {"morphsData": [morph_payload(b, z_base, conv) for b in part]})
         g, errors = guids_of(res)
         for err in errors[:5]:
             log(f"  ! morph: {err}")
