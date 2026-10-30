@@ -32,6 +32,7 @@
     counterH: 900, counterT: 30, baseDepth: 600, plinthH: 100, nosing: 20, moduleMax: 600,
 
     // Wall & tall cabinets
+    fronts: true,
     wallCabs: true, wallCabH: 720, wallCabDepth: 350, wallCabElev: 1450,
     tallH: 2200, pantryCount: 0,
 
@@ -326,6 +327,48 @@
       return b;
     }
 
+    // ---- door / drawer fronts, proud of a carcass face at t = depth
+    const FT = 19, GAP = 3, HD = 26; // front thickness, joint, handle projection
+    function fronts(run, s0, s1, depth, bands, o) {
+      if (!p.fronts) return;
+      const a = Math.max(s0, o.clipA === undefined ? s0 : o.clipA);
+      const b = Math.min(s1, o.clipB === undefined ? s1 : o.clipB);
+      if (b - a < 40) return;
+      const openRight = (s0 + s1) / 2 < run.length / 2; // single doors open towards the middle of the run
+      for (const band of bands) {
+        const leaves = band.type === 'door' && b - a > 650 ? 2 : 1;
+        const lw = (b - a) / leaves;
+        for (let i = 0; i < leaves; i++) {
+          const fa = a + i * lw + GAP / 2, fb = a + (i + 1) * lw - GAP / 2;
+          box(run, 'front', band.cat || CAT.CAB, fa, fb, depth, depth + FT, band.z0 + GAP / 2, band.z1 - GAP / 2,
+            { label: band.label || (band.type === 'drawer' ? 'Drawer front' : 'Door'), finish: band.finish || 'front' });
+          const t0 = depth + FT, t1 = t0 + HD;
+          if (band.handle === 'h') {
+            const len = Math.min((fb - fa) * 0.5, 420), c = (fa + fb) / 2;
+            box(run, 'handle', CAT.CAB, c - len / 2, c + len / 2, t0, t1, band.hz - 7, band.hz + 7, { label: 'Handle' });
+          } else if (band.handle === 'v') {
+            const edge = leaves === 2 ? (i === 0 ? fb - 40 : fa + 40) : (openRight ? fb - 40 : fa + 40);
+            box(run, 'handle', CAT.CAB, edge - 7, edge + 7, t0, t1, band.hz - band.hl / 2, band.hz + band.hl / 2, { label: 'Handle' });
+          }
+        }
+      }
+    }
+    function baseBands(kind, w) {
+      const z0 = p.plinthH, top = carcassTop, dz = 170;
+      switch (kind) {
+        case 'sink': return [{ z0: top - dz, z1: top, type: 'panel', label: 'False drawer front' }, { z0, z1: top - dz, type: 'door', handle: 'v', hz: top - dz - 90, hl: 160 }];
+        case 'cooktop': return [
+          { z0: top - 600, z1: top, type: 'panel', label: 'Oven', finish: 'oven', cat: CAT.APP, handle: 'h', hz: top - 45 },
+          { z0, z1: top - 600, type: 'drawer', handle: 'h', hz: (z0 + top - 600) / 2 },
+        ];
+        case 'dishwasher': return [{ z0, z1: top, type: 'panel', label: 'Dishwasher panel', handle: 'h', hz: top - 50 }];
+        case 'filler': return [{ z0, z1: top, type: 'panel', label: 'Filler panel' }];
+        default:
+          if (w <= 350) return [{ z0, z1: top, type: 'door', handle: 'v', hz: top - 110, hl: 160 }];
+          return [{ z0: top - dz, z1: top, type: 'drawer', handle: 'h', hz: top - dz / 2 }, { z0, z1: top - dz, type: 'door', handle: 'v', hz: top - dz - 90, hl: 160 }];
+      }
+    }
+
     // ---- appliance assignment
     const runIds = Object.keys(runs);
     const wallRuns = runIds.filter((id) => !runs[id].freestanding);
@@ -407,8 +450,21 @@
         if (b > run.length - 1 && a > 1) mods.sort((x, y) => (x.filler - y.filler) || (x.w - y.w));
         // the first/last real unit of a gap that reaches a cornered run end is the blind corner unit
         const units = mods.filter((m) => !m.filler);
-        if (units.length && a < 1 && run.startCorner > 0) units[0].corner = true;
-        if (units.length && b > run.length - 1 && run.endCorner > 0) units[units.length - 1].corner = true;
+        const merge = (i, j) => { // a blind corner unit needs ≥ 300 mm of door beyond the corner
+          mods[i].w += mods[j].w;
+          mods.splice(j, 1);
+        };
+        if (units.length && a < 1 && run.startCorner > 0) {
+          let i = mods.indexOf(units[0]);
+          if (units[0].w < run.startCorner + 300 && mods[i + 1] && !mods[i + 1].filler) merge(i, i + 1);
+          mods[i].corner = true;
+        }
+        const u2 = mods.filter((m) => !m.filler);
+        if (u2.length && b > run.length - 1 && run.endCorner > 0) {
+          let i = mods.indexOf(u2[u2.length - 1]);
+          if (u2[u2.length - 1].w < run.endCorner + 300 && mods[i - 1] && !mods[i - 1].filler && !mods[i - 1].corner) { merge(i - 1, i); i -= 1; }
+          mods[i].corner = true;
+        }
         for (const m of mods) {
           baseSegs.push({ kind: m.filler ? 'filler' : m.corner ? 'corner' : 'base', s0: s, s1: s + m.w });
           s += m.w;
@@ -416,21 +472,41 @@
       }
       baseSegs.sort((x, y) => x.s0 - y.s0);
 
+      const clip = { // fronts must not run into the cabinets of the adjoining run
+        clipA: run.startCorner > 0 ? run.startCorner + FT : undefined,
+        clipB: run.endCorner > 0 ? run.length - run.endCorner - FT : undefined,
+      };
       for (const g of baseSegs) {
         const w = g.s1 - g.s0;
-        const ins = 1.5; // visual joint between fronts
+        const ins = p.fronts ? 0 : 1.5; // visual joint between carcasses when there are no fronts
         if (g.tall) {
           const isFridge = g.kind === 'fridge';
-          box(run, g.kind, isFridge ? CAT.APP : CAT.CAB, g.s0 + ins, g.s1 - ins, 0, bd + (isFridge ? 30 : 0), p.plinthH, p.tallH,
+          box(run, g.kind, isFridge ? CAT.APP : CAT.CAB, g.s0 + ins, g.s1 - ins, 0, bd, p.plinthH, p.tallH,
             { label: isFridge ? `Fridge ${Math.round(w)}` : `Tall pantry ${Math.round(w)}`, w: Math.round(w), code: isFridge ? `F${Math.round(w)}` : `T${Math.round(w)}` });
+          const z0 = p.plinthH, z1 = p.tallH;
+          if (isFridge) {
+            const zs = z0 + Math.round((z1 - z0) * 0.38);
+            fronts(run, g.s0, g.s1, bd, [
+              { z0, z1: zs, type: 'panel', label: 'Freezer door', finish: 'steel', cat: CAT.APP, handle: 'v', hz: zs - 170, hl: 260 },
+              { z0: zs, z1, type: 'panel', label: 'Fridge door', finish: 'steel', cat: CAT.APP, handle: 'v', hz: zs + 330, hl: 520 },
+            ], clip);
+          } else {
+            const zs = p.counterH;
+            fronts(run, g.s0, g.s1, bd, [
+              { z0, z1: zs, type: 'door', handle: 'v', hz: zs - 160, hl: 300 },
+              { z0: zs, z1, type: 'door', handle: 'v', hz: zs + 160, hl: 300 },
+            ], clip);
+          }
         } else if (g.kind === 'filler') {
           box(run, 'filler', CAT.CAB, g.s0, g.s1, 0, bd, p.plinthH, carcassTop, { label: `Filler ${Math.round(w)}`, w: Math.round(w), code: `FL${Math.round(w)}` });
+          fronts(run, g.s0, g.s1, bd, baseBands('filler', w), clip);
         } else {
           const codes = { base: 'B', corner: 'BC', sink: 'SB', dishwasher: 'DW', cooktop: 'CB' };
           const labels = { base: 'Base', corner: 'Blind corner base', sink: 'Sink base', dishwasher: 'Dishwasher', cooktop: 'Cooktop / oven base' };
           box(run, g.kind === 'dishwasher' ? 'dishwasher' : g.kind === 'sink' ? 'sinkBase' : g.kind === 'cooktop' ? 'cookBase' : g.kind, g.kind === 'dishwasher' || g.kind === 'cooktop' ? CAT.APP : CAT.CAB,
             g.s0 + ins, g.s1 - ins, 0, bd, p.plinthH, carcassTop,
             { label: `${labels[g.kind]} ${Math.round(w)}`, w: Math.round(w), code: `${codes[g.kind]}${Math.round(w)}` });
+          fronts(run, g.s0, g.s1, bd, baseBands(g.kind, w), clip);
         }
         // plinth (recessed)
         if (p.plinthH > 0) box(run, 'plinth', CAT.CAB, g.s0, g.s1, run.freestanding ? 60 : 0, bd - 60, 0, p.plinthH, { label: 'Plinth' });
@@ -453,6 +529,8 @@
         if (g.kind === 'sink') {
           const bw = Math.min(w - 120, 820);
           box(run, 'sinkBowl', CAT.APP, c - bw / 2, c + bw / 2, 80, bd - 80, p.counterH - 4, p.counterH + 2, { label: 'Sink', bowls: bw > 650 ? 2 : 1 });
+          box(run, 'tap', CAT.APP, c - 22, c + 22, 28, 72, p.counterH, p.counterH + 320, { label: 'Tap' });
+          box(run, 'tap', CAT.APP, c - 15, c + 15, 50, 260, p.counterH + 290, p.counterH + 320, { label: 'Tap spout' });
           sinkLanding.push(landing(run, g, segs, tallIv));
         }
         if (g.kind === 'cooktop') {
@@ -483,13 +561,22 @@
           const c = (sink.s0 + sink.s1) / 2;
           blocked.push([c - p.windowW / 2 - 50, c + p.windowW / 2 + 50]);
         }
-        const z0 = p.wallCabElev, z1 = p.wallCabElev + p.wallCabH;
+        const z0 = p.wallCabElev, z1 = p.wallCabElev + p.wallCabH, wcd = p.wallCabDepth;
+        const wclip = {
+          clipA: run.startCorner > 0 ? wcd + FT : undefined,
+          clipB: run.id === 'back' && runs.right ? run.length - wcd - FT : undefined, // the right leg's wall units
+        };
+        const wallBand = [{ z0, z1, type: 'door', handle: 'v', hz: z0 + 90, hl: 140 }];
         for (const [a, b] of gaps(run.wallCabStart, run.length, mergeIntervals(blocked))) {
           if (b - a < 200) continue;
           let s = a;
           for (const m of modules(b - a, p.moduleMax, 300, a < run.wallCabStart + 1 && b < run.length - 1)) {
-            if (!m.filler) box(run, 'wallCab', CAT.CAB, s + 1.5, s + m.w - 1.5, 0, p.wallCabDepth, z0, z1,
-              { label: `Wall ${Math.round(m.w)}`, w: Math.round(m.w), code: `W${Math.round(m.w)}` });
+            if (!m.filler) {
+              const ins = p.fronts ? 0 : 1.5;
+              box(run, 'wallCab', CAT.CAB, s + ins, s + m.w - ins, 0, wcd, z0, z1,
+                { label: `Wall ${Math.round(m.w)}`, w: Math.round(m.w), code: `W${Math.round(m.w)}` });
+              fronts(run, s, s + m.w, wcd, wallBand, wclip);
+            }
             else if (m.w >= 20) box(run, 'wallFiller', CAT.CAB, s, s + m.w, 0, p.wallCabDepth, z0, z1,
               { label: `Wall filler ${Math.round(m.w)}`, w: Math.round(m.w), code: `WF${Math.round(m.w)}` });
             s += m.w;
@@ -500,7 +587,7 @@
       // stools along freestanding runs
       if (run.freestanding && p.overhang >= 200) {
         const avail = run.length - run.counterStart - 150;
-        const n = Math.max(0, Math.floor(avail / p.stoolSpacing));
+        const n = Math.max(0, Math.floor((avail + 150) / p.stoolSpacing));
         const pitch = n ? avail / n : 0;
         for (let i = 0; i < n; i++) {
           const s = run.counterStart + 75 + pitch * (i + 0.5);

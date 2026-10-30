@@ -50,6 +50,15 @@ for (const c of cases) {
       if (overlapArea(G.aabb(walls[i]), G.aabb(walls[j])) > 100) fail(`${walls[i].label} overlaps ${walls[j].label}`);
     }
   }
+  // fronts and handles must not collide with each other or with any cabinet body (3D test)
+  const solid3 = m.boxes.filter((b) => SOLID.includes(b.kind) || ['wallCab', 'front', 'handle'].includes(b.kind));
+  const box3 = (b) => { const a = G.aabb(b); return [a[0], a[1], b.z, a[2], a[3], b.z + b.H]; };
+  const hit3 = (a, b) => a[0] < b[3] - 1 && b[0] < a[3] - 1 && a[1] < b[4] - 1 && b[1] < a[4] - 1 && a[2] < b[5] - 1 && b[2] < a[5] - 1;
+  for (const f of m.boxes.filter((b) => b.kind === 'front' || b.kind === 'handle')) {
+    const fa = box3(f);
+    const other = solid3.find((o) => o !== f && hit3(fa, box3(o)));
+    if (other) fail(`${f.label} (${f.id}) collides with ${other.label} (${other.id})`);
+  }
   for (const k of ['sink', 'cooktop', 'fridge']) if (!m.triangle.points[k]) fail(`missing ${k}`);
   if (c.island) m.checks.filter((x) => x.level === 'error').forEach((x) => fail(`fitted island: ${x.msg}`));
 }

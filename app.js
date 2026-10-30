@@ -66,6 +66,7 @@
         { key: 'counterT', label: 'Worktop thickness', min: 12, max: 60, step: 1, unit: 'mm' },
         { key: 'plinthH', label: 'Plinth height', min: 0, max: 200, step: 5, unit: 'mm' },
         { key: 'moduleMax', label: 'Max module width', min: 400, max: 1000, step: 50, unit: 'mm' },
+        { key: 'fronts', label: 'Door & drawer fronts with handles', type: 'toggle' },
       ],
     },
     {

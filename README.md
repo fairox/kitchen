@@ -34,7 +34,7 @@ To build in Archicad, open a project in Archicad with Tapir installed, then clic
 | Room | width, depth, ceiling height, wall thickness, open ends (galley), door wall / position / width |
 | Runs | left / right leg length, peninsula length and position, island length / offset, aisle to island, seating overhang, stool spacing |
 | Appliances | run and position for sink, cooktop and fridge; sink / cooktop / fridge widths; dishwasher left or right of the sink; window over sink |
-| Base cabinets | worktop height and thickness, base depth, plinth, max module width |
+| Base cabinets | worktop height and thickness, base depth, plinth, max module width, door & drawer fronts on/off |
 | Wall & tall | wall units on/off, bottom height, unit height and depth, tall unit height, number of tall pantry units |
 | Finish | fronts, worktop, walls and floor colours, plus presets |
 
@@ -46,6 +46,8 @@ The parameters are stored in the URL, so **Copy link** shares the exact design.
 - The gaps are filled with **catalogue widths** (150 to 1000 mm, capped by *max module width*) using as few units as possible. Any remainder becomes a **filler at the wall or corner end**.
 - Corners belong to the run that reaches the wall. The unit there is scheduled as a **blind corner** unit.
 - Wall units skip tall units, the hood zone and the window over the sink.
+- With **fronts** on, every unit gets real door and drawer fronts (19 mm, 3 mm joints) and handles: drawer + door on base units, a false front over the sink, an oven under the cooktop, an integrated dishwasher panel, two-door pantries and fridge/freezer doors. These are separate boxes, so they go to Archicad too. Fronts are clipped at corners so they never run into the adjoining run.
+- A blind corner unit narrower than the corner plus 300 mm is merged with its neighbour (e.g. 600 + 300 → BC900), so it keeps a usable door.
 - Islands and peninsulas get a seating overhang, a back panel and stools.
 - If appliances don't fit, the generator drops the pantries first, then the dishwasher, and reports this in **Checks**.
 
@@ -82,7 +84,7 @@ In order: generate a model without a browser, place one of each element type, ve
 |---|---|---|
 | Room walls | Wall (Basic, centre reference line) | `CreateWalls` |
 | Door, window over sink | Door / Window in the host wall | `CreateDoors`, `CreateWindows` |
-| Cabinets, plinths, worktops, appliances, hood, stools | Morph box, oriented with x/y/z axes | `CreateMorphs` |
+| Cabinets, fronts, handles, plinths, worktops, appliances, tap, hood, stools | Morph box, oriented with x/y/z axes | `CreateMorphs` |
 | Layers `KITCHEN - Cabinets / Worktops / Appliances / Furniture / Walls` | Layer attributes | `CreateLayers` + `SetDetailsOfElements` |
 
 - It finds Archicad on ports **19723–19744** and checks the Tapir version and the commands it needs before building.
@@ -113,4 +115,4 @@ tools/check.js                     geometry sanity checks across all layouts
 vendor/                            three.js r128 + OrbitControls (MIT)
 ```
 
-Run `node tools/check.js` after changing the generator. It builds every layout in normal, island and small-room variants. It then checks for non-finite geometry, boxes outside the room, overlapping units, missing appliances and island errors after auto-fit.
+Run `node tools/check.js` after changing the generator. It builds every layout in normal, island and small-room variants. It then checks for non-finite geometry, boxes outside the room, overlapping units, fronts or handles colliding with anything, missing appliances and island errors after auto-fit.
