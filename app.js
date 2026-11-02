@@ -518,7 +518,10 @@
     if (wantIsland) { // keep the island, re-fitted to this layout (and to the fixed room)
       const patch = G.fitIsland(params, { fixedRoom: !!room });
       if (patch.fail) toast(`Island removed: ${patch.fail}`);
-      else Object.assign(params, patch);
+      else {
+        if (patch.roomW || patch.roomD) toast(`Room enlarged to ${patch.roomW || params.roomW} × ${patch.roomD || params.roomD} mm to fit the island. Edit the room to fix its size.`);
+        Object.assign(params, patch);
+      }
     }
     viewer.reframe();
     refresh();
@@ -676,7 +679,10 @@
   }
   function exportAs(kind) {
     const base = `kitchen-${params.layout}${params.island ? '-island' : ''}`;
-    if (kind === 'build') $('#ac-download').click();
+    if (kind === 'build') {
+      if (!dlg.open) syncAcFields(); // not opened: walls and story come from the site, not stale dialog fields
+      $('#ac-download').click();
+    }
     if (kind === 'json') download(`${base}.json`, JSON.stringify(model, null, 2), 'application/json');
     if (kind === 'params') download(`${base}-params.json`, JSON.stringify(params, null, 2), 'application/json');
     if (kind === 'csv') {
@@ -701,9 +707,12 @@
   const log = (msg) => { const l = $('#ac-log'); l.textContent += msg + '\n'; l.scrollTop = l.scrollHeight; };
   let bridge = null;
 
+  // the Archicad the bridge talks to; required as soon as more than one is open
+  const acPort = () => Number($('#ac-project').value) || undefined;
   async function checkBridge() {
     try {
-      const r = await fetch('api/status', { cache: 'no-store' });
+      const port = $('#ac-project-row').hidden ? '' : `?port=${acPort() || ''}`;
+      const r = await fetch('api/status' + port, { cache: 'no-store' });
       if (!r.ok) throw new Error(r.status);
       bridge = await r.json();
     } catch (e) {
@@ -713,18 +722,33 @@
     return bridge;
   }
 
-  async function openArchicad() {
-    $('#ac-log').textContent = '';
+  // the dialog's walls / story fields start from the site (a room imported from a zone: no walls, its story)
+  function syncAcFields() {
     $('#ac-walls').checked = params.acWalls !== false;
     $('#ac-floor').value = params.acFloor || 0;
+  }
+
+  async function openArchicad() {
+    $('#ac-log').textContent = '';
+    syncAcFields();
     dlg.showModal();
     $('#ac-status').textContent = 'Checking connection…';
-    const s = await checkBridge();
+    let s = await checkBridge();
+    if (s.multiple && s.instances && s.instances.length) { // several Archicads: the user picks, the bridge never guesses
+      const sel = $('#ac-project');
+      const keep = sel.value;
+      sel.innerHTML = '<option value="">Choose the Archicad project…</option>' + s.instances.map((i) => `<option value="${i.port}">${escapeHtml(i.isUntitled ? 'Untitled project' : i.projectName || '?')} · Archicad ${i.archicad || '?'} · port ${i.port}</option>`).join('');
+      if (keep && s.instances.some((i) => String(i.port) === keep)) sel.value = keep;
+      $('#ac-project-row').hidden = false;
+      s = await checkBridge();
+    }
     const ready = !!s.archicad;
     $('#ac-build').disabled = !ready;
     $('#ac-test').disabled = !ready;
     if (!s.bridge) {
       $('#ac-status').innerHTML = 'Not available here: the page is not served by <code>serve.py</code>. Use the build file above.';
+    } else if (s.multiple) {
+      $('#ac-status').textContent = `${s.instances.length} Archicad projects are open: choose the one to build into.`;
     } else if (!s.archicad) {
       $('#ac-status').textContent = `Bridge running, but Archicad was not found on ports ${s.ports || '19723–19744'}. Open a project in Archicad with Tapir installed.`;
     } else {
@@ -741,6 +765,7 @@
   }
 
   $('#btn-archicad').addEventListener('click', openArchicad);
+  $('#ac-project').addEventListener('change', openArchicad);
 
   // The build file the Archicad script reads (format kitchen-configurator-build, version 1).
   // Placement in metres; the room's inside corner goes to the origin.
@@ -765,7 +790,7 @@
     log(`→ Building ${model.boxes.length} elements…`);
     try {
       const j = await post('api/build', {
-        model, options: { walls: $('#ac-walls').checked, replace: $('#ac-replace').checked, floorIndex: Number($('#ac-floor').value) || 0 },
+        model, options: { walls: $('#ac-walls').checked, replace: $('#ac-replace').checked, floorIndex: Number($('#ac-floor').value) || 0, port: acPort() },
       });
       log(`✓ Done: ${j.created} elements created${j.failed ? `, ${j.failed} failed` : ''}.`);
     } catch (e) { log('✗ ' + e.message); }
@@ -773,7 +798,7 @@
   });
   $('#ac-test').addEventListener('click', async () => {
     log('→ Test placement (one of each element type, then removed)…');
-    try { await post('api/test', { model }); } catch (e) { log('✗ ' + e.message); }
+    try { await post('api/test', { model, options: { port: acPort(), floorIndex: Number($('#ac-floor').value) || 0 } }); } catch (e) { log('✗ ' + e.message); }
   });
 
   // ------------------------------------------------------------------ boot

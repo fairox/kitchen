@@ -55,7 +55,13 @@ from pathlib import Path
 HERE = os.path.dirname(os.path.abspath(__file__))
 LAST_BUILD = os.path.join(HERE, "last_build.json")  # read once for builds made before journals existed
 JOURNAL = Path.home() / "Documents" / "Kitchen Configurator" / "journal"
-PORTS = range(19723, 19745)
+def _ports():
+    # KITCHEN_ARCHICAD_PORTS="29723-29725" points the tests at a mock instead of a real Archicad
+    lo, _, hi = os.environ.get("KITCHEN_ARCHICAD_PORTS", "19723-19744").partition("-")
+    return range(int(lo), int(hi or lo) + 1)
+
+
+PORTS = _ports()
 BATCH = 200
 LAYER_PREFIX = "KITCHEN - "
 MIN_TAPIR = (1, 4, 0)  # CreateWalls, CreateBeams, CreateMorphs with axes, CreateDoors/Windows
@@ -67,7 +73,7 @@ TOKEN_PREFIX = "Kitchen Configurator; project token "
 
 REQUIRED = ["GetAddOnVersion", "CreateMorphs", "SetDetailsOfElements", "DeleteElements",
             "GetAttributesByType", "CreateLayers", "GetStories", "GetDetailsOfElements", "Get3DBoundingBoxes"]
-OPTIONAL = ["CreateWalls", "CreateDoors", "CreateWindows", "CreateBeams", "CreateClassificationSystems",
+OPTIONAL = ["CreateWalls", "CreateDoors", "CreateWindows", "CreateBeams", "CreateSurfaces", "CreateClassificationSystems",
             "UpdateClassificationSystems", "GetProjectInfo"]
 
 
@@ -95,7 +101,7 @@ class Archicad:
             raise ArchicadError("Port outside the Archicad range 19723-19744.")
         self.port = port or self.find_port()
         if self.port is None:
-            raise ArchicadError("Archicad is not reachable on ports 19723-19744. Is a project open?")
+            raise ArchicadError(f"Archicad is not reachable on ports {PORTS.start}-{PORTS.stop - 1}. Is a project open?")
 
     @staticmethod
     def _post(port: int, payload: dict, timeout: float) -> dict:
@@ -239,9 +245,9 @@ def same_project(journal_project, ident) -> tuple[bool, str]:
     return True, "same project token" + (" and path" if jp and ip else "")
 
 
-def instances():
+def instances(found=None):
     out = []
-    for f in discover():
+    for f in (discover() if found is None else found):
         try:
             i = project_identity(Archicad(f["port"], 3))
         except Exception:  # noqa: BLE001
@@ -251,12 +257,21 @@ def instances():
 
 
 def status(port: int | None = None) -> dict:
-    """Connection summary: used by serve.py's /api/status and the Archicad window."""
+    """Connection summary: used by serve.py's /api/status and the Archicad window.
+    The ports are scanned once; with several Archicads and no port given it lists them instead of guessing."""
+    ports = f"{PORTS.start}-{PORTS.stop - 1}"
+    if port is None:
+        found = discover()
+        if len(found) != 1:
+            inst = instances(found)
+            err = (f"{len(found)} Archicad projects are open: choose one." if found
+                   else f"No Archicad with the Tapir add-on found on ports {ports}.")
+            return {"archicad": False, "connected": False, "multiple": len(found) > 1, "instances": inst, "error": err, "ports": ports}
+        port = found[0]["port"]
     try:
         ac, f = connect(port)
     except ArchicadError as e:
-        inst = instances() if port is None else []
-        return {"archicad": False, "connected": False, "multiple": len(inst) > 1, "instances": inst, "error": str(e), "ports": "19723-19744"}
+        return {"archicad": False, "connected": False, "multiple": False, "instances": [], "error": str(e), "ports": ports}
     ok, why = writable(f)
     out = {"archicad": True, "connected": True, "port": f["port"], "tapir": f["tapir"],
            "archicadVersion": f"{f.get('archicad')} (build {f.get('build')}, {f.get('language')})", "writable": ok}
@@ -1153,7 +1168,7 @@ def test_placement(model: dict, log=print, port: int | None = None, options: dic
     if not ok_write:
         raise ArchicadError(why)
     stories = ac.tapir("GetStories").get("stories", [])
-    story_i = int(o.get("story", model["params"].get("acFloor", 0)) or 0)
+    story_i = int(o.get("story", o.get("floorIndex", model["params"].get("acFloor", 0))) or 0)
     story = next((s for s in stories if s["index"] == story_i), stories[0] if stories else {"index": 0, "level": 0.0})
     z_base = float(story.get("level", 0.0))
     origin = o.get("origin")

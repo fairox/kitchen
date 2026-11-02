@@ -394,8 +394,9 @@
         return g;
       });
       free.splice(free.indexOf(f), 1, ...pieces);
-      for (const it of f.items) { // anything already assigned to the stretch moves to the nearest piece
-        const g = pieces.reduce((m, x) => (Math.abs((x.lo + x.hi) / 2 - it.s) < Math.abs((m.lo + m.hi) / 2 - it.s) ? x : m), pieces[0]);
+      for (const it of f.items) { // anything already assigned to the stretch moves to the nearest stretch with room
+        const dist = (x) => Math.abs((x.lo + x.hi) / 2 - it.s);
+        const g = free.filter((x) => x.cap >= it.w - 1e-6).reduce((m, x) => (!m || dist(x) < dist(m) ? x : m), null);
         if (!g) { notes.push(`${run.label}: no room left for the ${it.key} — removed.`); continue; }
         g.items.push(it);
         g.cap -= it.w;
@@ -765,7 +766,12 @@
         sinkPin = { run: run.id, s: toS(run, ...wallPoint(run.wall, p.sinkFrom === 'start' ? p.sinkOffset : len - p.sinkOffset, p)) };
       }
     }
-    if (sinkPin) claimExact(sinkPin.run, sinkPin.s - sinkGroupW / 2, sinkPin.s + sinkGroupW / 2);
+    if (sinkPin) { // claim the real span: the dishwasher sits on one side of the sink centre
+      const dwW = p.dwSide !== 'none' ? 600 : 0;
+      const after = dwW && (p.dwSide === 'right') === (rightSign(runs[sinkPin.run]) > 0);
+      const a = sinkPin.s - p.sinkW / 2 - (after ? 0 : dwW);
+      claimExact(sinkPin.run, a, a + sinkGroupW);
+    }
     // then the hardest to place: the fridge needs window-free wall
     const fRun = chooseRun(fridgeRun, wallRuns, p.fridgeW, true, 'Fridge');
     const sRun = sinkPin ? sinkPin.run : chooseRun(worktopRuns.includes(sinkRun) ? sinkRun : worktopRuns[0], worktopRuns, sinkGroupW, false, 'Sink');

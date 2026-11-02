@@ -249,4 +249,6 @@ tools/check.js                     geometry sanity checks across all layouts
 vendor/                            three.js r128 + OrbitControls (MIT)
 ```
 
+Run `python3 tools/check_archicad.py` after changing anything under `archicad/`. It drives the builder against `tools/mock_archicad.py` on ports 29723–29725 (never a real Archicad). The mock reads morph axes as rows, like Archicad 29 with Tapir 1.7.0. The test covers read-back verification, Replace (including keeping a user-edited element), Remove run, unique element IDs, surfaces in the configurator's colours, build-file validation, and refusing to guess between several Archicads.
+
 Run `node tools/check.js` after changing the generator. It builds every layout in normal, island and small-room variants. It then checks for non-finite geometry, boxes outside the room, overlapping units, fronts or handles colliding with anything, missing appliances and island errors after auto-fit.

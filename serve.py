@@ -25,7 +25,7 @@ import sys
 import threading
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(ROOT, "archicad"))
@@ -72,12 +72,14 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        path = urlparse(self.path).path
+        url = urlparse(self.path)
+        path = url.path
         if path == "/api/status":
             if not origin_ok(self.headers.get("Origin")):
                 return self._json(403, {"error": "origin not allowed"})
             try:
-                info = build_kitchen.status()
+                port = (parse_qs(url.query).get("port") or [""])[0]
+                info = build_kitchen.status(int(port) if port.isdigit() else None)
             except Exception as e:  # report, don't crash the page
                 info = {"archicad": False, "error": str(e)}
             info["bridge"] = True
@@ -110,7 +112,7 @@ class Handler(SimpleHTTPRequestHandler):
             if path == "/api/build":
                 res = build_kitchen.build(model, body.get("options") or {}, log=lines.append)
             else:
-                res = build_kitchen.test_placement(model, log=lines.append)
+                res = build_kitchen.test_placement(model, log=lines.append, options=body.get("options") or {})
             res["log"] = lines
             return self._json(200, res)
         except Exception as e:
